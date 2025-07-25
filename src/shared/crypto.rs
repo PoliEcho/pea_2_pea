@@ -1,7 +1,7 @@
 #[derive(Clone)]
 pub struct KeyPair {
-    private_key: rsa::RsaPrivateKey,
-    public_key: rsa::RsaPublicKey,
+    pub private_key: rsa::RsaPrivateKey,
+    pub public_key: rsa::RsaPublicKey,
 }
 pub fn generate_rsa_private_key() -> Result<rsa::RsaPrivateKey, rsa::Error> {
     let mut rng: rand::prelude::ThreadRng = rand::thread_rng();
@@ -11,8 +11,8 @@ pub fn generate_rsa_private_key() -> Result<rsa::RsaPrivateKey, rsa::Error> {
 }
 
 pub fn generate_rsa_key_pair() -> KeyPair {
-    let private_key = generate_rsa_private_key().unwrap();
-    let public_key = rsa::RsaPublicKey::from(&private_key);
+    let private_key: rsa::RsaPrivateKey = generate_rsa_private_key().unwrap();
+    let public_key: rsa::RsaPublicKey = rsa::RsaPublicKey::from(&private_key);
 
     KeyPair {
         private_key,

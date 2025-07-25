@@ -1,5 +1,7 @@
 mod net;
 use std::{net::UdpSocket, process::exit, sync::Arc};
+
+use rsa::pkcs8::der::zeroize::Zeroize;
 fn main() -> std::io::Result<()> {
     {
         let socket: Arc<UdpSocket> = Arc::new(
@@ -19,6 +21,7 @@ fn main() -> std::io::Result<()> {
         let mut buf: [u8; pea_2_pea::BUFFER_SIZE] = [0; pea_2_pea::BUFFER_SIZE];
         smol::block_on(async {
             loop {
+                buf.zeroize();
                 match socket.recv_from(&mut buf) {
                     Ok((data_length, src)) => {
                         smol::spawn(net::handle_request(
