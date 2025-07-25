@@ -1,0 +1,15 @@
+[package]
+name = "pee_2_pee"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "server"
+path = "src/server/main.rs"
+
+[[bin]]
+name = "client"
+path = "src/client/main.rs"
+
+
+[dependencies]
