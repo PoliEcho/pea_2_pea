@@ -1,9 +1,10 @@
 use pea_2_pea::SERVER_PORT;
 
 use std::{
-    io::{Read, Write},
+    io::{ErrorKind, Read, Write},
     net::UdpSocket,
     process::exit,
+    time::Duration,
 };
 
 #[derive(clap::Parser)]
@@ -47,6 +48,8 @@ fn main() -> std::io::Result<()> {
         })()
         .expect("Failed to bind to any available port");
 
+        socket.set_read_timeout(Some(Duration::new(10, 0)))?; // set timeout to 10 seconds
+
         // send query request to get server public key
         let server_port: u16 = (|| -> u16 {
             match cli.bind_port {
@@ -59,18 +62,34 @@ fn main() -> std::io::Result<()> {
             .parse()
             .unwrap();
 
+        {
+            let mut query_byte: [u8; 1] = [0; 1];
+            query_byte[0] = pea_2_pea::ServerMethods::QUERY as u8;
+            match socket.send_to(&query_byte, &server_SocketAddr) {
+                Ok(s) => {
+                    #[cfg(debug_assertions)]
+                    eprintln!("send {} bytes", s);
+                }
+                Err(e) => {
+                    eprintln!("Error snding data: {}", e);
+                }
+            }
+        }
+
         let mut buf: [u8; pea_2_pea::BUFFER_SIZE] = [0; pea_2_pea::BUFFER_SIZE];
         loop {
             match socket.recv_from(&mut buf) {
                 Ok((data_length, src)) => {}
+                Err(e) if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::TimedOut => {
+                    // timedout
+                    continue;
+                }
                 Err(e) => {
                     eprintln!("Error receiving data: {}", e);
                     std::process::exit(-4);
                 }
             }
-            let mut out = std::io::stdout();
-            out.write_all(&buf)?;
-            out.flush()?;
+            break;
         }
     }
     Ok(())

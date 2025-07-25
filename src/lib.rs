@@ -6,9 +6,10 @@ pub const RSA_SIZE: usize = 2048;
 
 #[repr(u8)]
 pub enum ServerMethods {
-    REGISTER = 0,
-    GET = 1,
-    HEARTBEAT = 2,
+    QUERY = 0,
+    REGISTER = 1,
+    GET = 2,
+    HEARTBEAT = 3,
 }
 
 pub mod shared;
