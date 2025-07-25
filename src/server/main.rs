@@ -13,13 +13,22 @@ fn main() -> std::io::Result<()> {
             .expect("Failed to bind to any available port"),
         );
 
+        let server_key_pear: pea_2_pea::shared::crypto::KeyPair =
+            pea_2_pea::shared::crypto::generate_rsa_key_pair();
+
         let mut buf: [u8; pea_2_pea::BUFFER_SIZE] = [0; pea_2_pea::BUFFER_SIZE];
         smol::block_on(async {
             loop {
                 match socket.recv_from(&mut buf) {
                     Ok((data_length, src)) => {
-                        smol::spawn(net::handle_request(buf, socket.clone(), src, data_length))
-                            .detach();
+                        smol::spawn(net::handle_request(
+                            buf,
+                            socket.clone(),
+                            src,
+                            data_length,
+                            server_key_pear.clone(),
+                        ))
+                        .detach();
                     }
                     Err(e) => {
                         eprintln!("Error receiving data: {}", e);

@@ -13,5 +13,7 @@ path = "src/client/main.rs"
 
 
 [dependencies]
+rand = "0.8.5"
+rsa = "0.9.8"
 smol = "2.0.2"
 tappers = "0.4.2"
