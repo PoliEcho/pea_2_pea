@@ -13,7 +13,9 @@ path = "src/client/main.rs"
 
 
 [dependencies]
+chrono = "0.4.41"
 clap = { version = "4.5.41", features = ["derive"] }
-rand = "0.8.5"
+orx-concurrent-vec = "3.6.0"
+readonly = "0.2.13"
 smol = "2.0.2"
 tappers = "0.4.2"

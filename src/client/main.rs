@@ -1,7 +1,7 @@
 use pea_2_pea::SERVER_PORT;
 
 use std::{
-    io::{ErrorKind, Read, Write},
+    io::{Error, ErrorKind, Read, Write},
     net::UdpSocket,
     process::exit,
     time::Duration,
@@ -15,35 +15,35 @@ struct Cli {
     #[arg(help = "registrar ip address or hostname")]
     registrar: String,
 
+    #[arg(short = 'p', long = "registrar-port")]
+    #[arg(help = format!("optional Port number for the registrar service (1-65535) Default: {}", SERVER_PORT))]
+    registrar_port: Option<u16>,
+
+    #[arg(short = 'n', long = "network-id")]
+    #[arg(help = "your virtual network id that allows other people to connect to you")]
+    network_id: String,
+
+    #[arg(short = 'P', long = "password")]
+    #[arg(
+        help = "encryption password for your virtual network if not provided transmitions will be unencrypted"
+    )]
+    password: Option<String>,
+
     #[arg(short = 'v', long = "verbose")]
     verbose: bool,
 
     #[arg(short = 'V', long = "version")]
     version: bool,
-
-    #[arg(short = 'p', long = "registrar-port")]
-    #[arg(help = format!("Port number for the registrar service (1-65535) Default: {}", SERVER_PORT))]
-    registrar_port: Option<u16>,
-
-    #[arg(short = 'P', long = "bind-port")]
-    bind_port: Option<u16>,
 }
 
 fn main() -> std::io::Result<()> {
     let cli = <Cli as clap::Parser>::parse();
     {
         let socket: UdpSocket = (|| -> std::io::Result<UdpSocket> {
-            let mut port: u16;
-            match cli.bind_port {
-                Some(port_proveded) => port = port_proveded,
-                None => port = 59999, // Magic number
-            }
-            loop {
-                port += 1;
-                match UdpSocket::bind(format!("0.0.0.0:{}", port)) {
-                    Ok(socket) => return Ok(socket),
-                    Err(_) => continue, // Retry on error
-                }
+            match UdpSocket::bind("0.0.0.0:0") {
+                // bind to OS assigned random port
+                Ok(socket) => return Ok(socket),
+                Err(e) => Err(e), // exit on error
             }
         })()
         .expect("Failed to bind to any available port");
@@ -52,12 +52,13 @@ fn main() -> std::io::Result<()> {
 
         // send query request to get server public key
         let server_port: u16 = (|| -> u16 {
-            match cli.bind_port {
+            match cli.registrar_port {
                 Some(port_proveded) => return port_proveded,
                 None => return pea_2_pea::SERVER_PORT,
             }
         })();
 
+        #[allow(non_snake_case)] // i think this is valid snake case but rustc doesnt think so
         let server_SocketAddr: core::net::SocketAddr = format!("{}:{}", cli.registrar, server_port)
             .parse()
             .unwrap();

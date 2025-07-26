@@ -1,6 +1,13 @@
 mod net;
-use std::{net::UdpSocket, process::exit, sync::Arc};
+mod types;
+mod utils;
+use std::{
+    net::UdpSocket,
+    process::exit,
+    sync::{Arc, RwLock},
+};
 
+use orx_concurrent_vec::ConcurrentVec;
 fn main() -> std::io::Result<()> {
     {
         let socket: Arc<UdpSocket> = Arc::new(
@@ -14,13 +21,22 @@ fn main() -> std::io::Result<()> {
             .expect("Failed to bind to any available port"),
         );
 
+        let registration_vector: Arc<ConcurrentVec<types::Registration>> =
+            Arc::new(orx_concurrent_vec::ConcurrentVec::new());
+
         let mut buf: [u8; pea_2_pea::BUFFER_SIZE] = [0; pea_2_pea::BUFFER_SIZE];
         smol::block_on(async {
             loop {
                 match socket.recv_from(&mut buf) {
                     Ok((data_length, src)) => {
-                        smol::spawn(net::handle_request(buf, socket.clone(), src, data_length))
-                            .detach();
+                        smol::spawn(net::handle_request(
+                            buf,
+                            socket.clone(),
+                            src,
+                            data_length,
+                            registration_vector.clone(),
+                        ))
+                        .detach();
                     }
                     Err(e) => {
                         eprintln!("Error receiving data: {}", e);
