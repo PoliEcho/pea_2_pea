@@ -2,7 +2,7 @@ pub const SERVER_PORT: u16 = 3543;
 pub const BUFFER_SIZE: usize = 65535;
 pub const DEFAULT_TIMEOUT: u64 = 30;
 pub const VERSION: &str = "v0.1";
-pub const RSA_SIZE: usize = 2048;
+pub const SALT_AND_IV_SIZE: u8 = 16;
 
 #[repr(u8)]
 pub enum ServerMethods {
@@ -24,7 +24,9 @@ pub enum RegisterRequestDataPositions {
     ENCRYPTED = 1, // this feeld should be 0 if not encrypted
     ID_LEN = 2,
     SOCKADDR_LEN = 3,
-    DATA = 4, // after this there will be id and sockaddr in string or encrypted form after
+    SALT = 4,
+    IV = (SALT_AND_IV_SIZE + RegisterRequestDataPositions::SALT as u8) as isize,
+    DATA = (SALT_AND_IV_SIZE + RegisterRequestDataPositions::IV as u8) as isize, // after this there will be id and sockaddr in string or encrypted form after
 }
 
 pub mod shared;

@@ -1,3 +1,4 @@
+use pea_2_pea::*;
 use std::sync::{Arc, atomic::Ordering};
 
 #[readonly::make]
@@ -20,19 +21,35 @@ impl Client {
 pub struct Registration {
     #[readonly]
     pub net_id: String,
+    #[readonly]
     pub clients: Vec<Client>,
+
+    pub last_heart_beat: i64,
+
     #[readonly]
     pub encrypted: bool,
-    pub last_heart_beat: i64,
+    #[readonly]
+    pub salt: [u8; SALT_AND_IV_SIZE as usize],
+    #[readonly]
+    pub iv: [u8; SALT_AND_IV_SIZE as usize],
 }
 
 impl Registration {
-    pub fn new(net_id: String, client_addr: Vec<u8>, encrypted: bool, heart_beat: i64) -> Self {
+    pub fn new(
+        net_id: String,
+        client_addr: Vec<u8>,
+        encrypted: bool,
+        heart_beat: i64,
+        salt: Option<[u8; SALT_AND_IV_SIZE as usize]>,
+        iv: Option<[u8; SALT_AND_IV_SIZE as usize]>,
+    ) -> Self {
         Registration {
-            net_id: net_id,
+            net_id,
             clients: vec![Client::new(client_addr, heart_beat)],
             encrypted,
             last_heart_beat: heart_beat,
+            salt: salt.unwrap_or([0; SALT_AND_IV_SIZE as usize]),
+            iv: iv.unwrap_or([0; SALT_AND_IV_SIZE as usize]),
         }
     }
 }

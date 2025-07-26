@@ -2,6 +2,7 @@ use super::types;
 use super::utils;
 use orx_concurrent_vec::ConcurrentVec;
 use pea_2_pea::*;
+use rayon::prelude::*;
 
 use std::sync::Arc;
 pub async fn handle_request(
@@ -55,26 +56,81 @@ pub async fn handle_request(
                 return;
             };
 
+            let net_id: String = match std::str::from_utf8(
+                &buf[(RegisterRequestDataPositions::DATA as usize)
+                    ..(len_id as usize) + (RegisterRequestDataPositions::DATA as usize)],
+            ) {
+                Ok(s) => s.to_string(),
+                Err(e) => {
+                    eprint!("id to utf-8 failed: {}", e);
+                    utils::send_general_error_to_client(src, e, socket);
+                    return;
+                }
+            };
+
+            match registration_vector
+                .iter()
+                .find(|elem| elem.map(|s| &s.net_id == &net_id)) // find if id exists
+            {
+                Some(_) => {
+                    match socket.send_to(&[ServerResponse::ID_EXISTS as u8], src) {
+                        Ok(s) => {
+                            #[cfg(debug_assertions)]
+                            eprintln!("send {} bytes", s);
+                        }
+                        Err(e) => {
+                            eprintln!("Error sending data: {}", e);
+                        }
+                    };
+                    return;
+                }
+                None => {}
+            }
+
+            let salt: Option<[u8; SALT_AND_IV_SIZE as usize]>;
+            let iv: Option<[u8; SALT_AND_IV_SIZE as usize]>;
+
+            if encrypted {
+                salt = Some(
+                    buf[(RegisterRequestDataPositions::SALT as usize)
+                        ..(RegisterRequestDataPositions::SALT as usize)
+                            + (SALT_AND_IV_SIZE as usize)]
+                        .try_into()
+                        .expect("this should never happen"),
+                );
+                iv = Some(
+                    buf[(RegisterRequestDataPositions::IV as usize)
+                        ..(RegisterRequestDataPositions::IV as usize)
+                            + (SALT_AND_IV_SIZE as usize)]
+                        .try_into()
+                        .expect("this should never happen"),
+                )
+            } else {
+                salt = None;
+                iv = None;
+            }
+
             registration_vector.push(types::Registration::new(
-                match std::str::from_utf8(
-                    &buf[(RegisterRequestDataPositions::DATA as usize)
-                        ..(len_id as usize) + (RegisterRequestDataPositions::DATA as usize)],
-                ) {
-                    Ok(s) => s.to_string(),
-                    Err(e) => {
-                        eprint!("id to utf-8 failed: {}", e);
-                        utils::send_general_error_to_client(src, e, socket);
-                        return;
-                    }
-                },
-                buf[(len_id as usize) + (RegisterRequestDataPositions::DATA as usize)
-                    ..(len_id as usize)
-                        + (RegisterRequestDataPositions::DATA as usize)
-                        + (sock_addr_len as usize)]
+                net_id,
+                buf[(RegisterRequestDataPositions::DATA as usize)
+                    ..(RegisterRequestDataPositions::DATA as usize) + (sock_addr_len as usize)]
                     .to_vec(),
                 encrypted,
                 chrono::Utc::now().timestamp(),
+                salt,
+                iv,
             ));
+            match socket.send_to(&[ServerResponse::OK as u8], src) {
+                Ok(s) => {
+                    #[cfg(debug_assertions)]
+                    eprintln!("send {} bytes", s);
+                }
+                Err(e) => {
+                    eprintln!("Error sending data: {}", e);
+                }
+            }
+            #[cfg(debug_assertions)]
+            println!("network registered");
         }
 
         x if x == ServerMethods::HEARTBEAT as u8 => {
