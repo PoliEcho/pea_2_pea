@@ -9,7 +9,7 @@ use rayon::prelude::*;
 use std::sync::Arc;
 use std::u8;
 pub async fn handle_request(
-    mut buf: [u8; BUFFER_SIZE],
+    buf: [u8; BUFFER_SIZE],
     socket: std::sync::Arc<std::net::UdpSocket>,
     src: core::net::SocketAddr,
     data_len: usize,

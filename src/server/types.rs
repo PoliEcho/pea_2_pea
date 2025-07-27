@@ -1,6 +1,7 @@
 use pea_2_pea::*;
 use std::sync::{Arc, atomic::Ordering};
 
+#[derive(Clone)]
 #[readonly::make]
 pub struct Client {
     #[readonly]
@@ -19,7 +20,7 @@ impl Client {
         }
     }
 }
-
+#[derive(Clone)]
 #[readonly::make]
 pub struct Registration {
     #[readonly]

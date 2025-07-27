@@ -65,4 +65,14 @@ pub enum RegisterRequestDataPositions {
     DATA = (SALT_AND_IV_SIZE + RegisterRequestDataPositions::IV as u8) as isize, // after this there will be id and sockaddr in string or encrypted form after
 }
 
+#[allow(non_camel_case_types)]
+pub enum GetResponseDataPositions {
+    ENCRYPTED = 1, // this feeld should be 0 if not encrypted
+    ID_LEN = 2,
+    NUM_OF_CLIENTS = 3,
+    SALT = 4,
+    CLIENTS = (SALT_AND_IV_SIZE + RegisterRequestDataPositions::SALT as u8) as isize,
+    // after this there will be blocks of this sturcture: one byte size of sockaddr than there will be IV that is SALT_AND_IV_SIZE long and after that there will be sockaddr this repeats until the end of packet
+}
+
 pub mod shared;
