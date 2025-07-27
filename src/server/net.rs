@@ -120,7 +120,7 @@ pub async fn handle_request(
                 salt,
                 iv,
             ));
-            match socket.send_to(&[ServerResponse::OK as u8], src) {
+            match socket.send_to(&[ServerMethods::REGISTER as u8], src) {
                 Ok(s) => {
                     #[cfg(debug_assertions)]
                     eprintln!("send {} bytes", s);

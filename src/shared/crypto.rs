@@ -18,13 +18,9 @@ pub fn derive_key_from_password(password: &[u8], salt: &[u8]) -> [u8; 32] {
 }
 
 /// Encrypt using AES-256-CBC
-pub fn encrypt(
-    key: &[u8],
-    iv: &[u8],
-    plaintext: &[u8],
-) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+pub fn encrypt(key: &[u8], iv: &[u8], data: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let cipher = Aes256CbcEnc::new_from_slices(key, iv)?;
-    Ok(cipher.encrypt_padded_vec_mut::<Pkcs7>(plaintext))
+    Ok(cipher.encrypt_padded_vec_mut::<Pkcs7>(data))
 }
 
 /// Decrypt using AES-256-CBC

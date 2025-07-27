@@ -6,13 +6,16 @@ pub struct Client {
     #[readonly]
     pub client_sock_addr: Vec<u8>,
     pub last_heart_beat: i64,
+    #[readonly]
+    pub iv: [u8; SALT_AND_IV_SIZE as usize],
 }
 
 impl Client {
-    pub fn new(client_addr: Vec<u8>, heart_beat: i64) -> Self {
+    pub fn new(client_addr: Vec<u8>, heart_beat: i64, iv: [u8; SALT_AND_IV_SIZE as usize]) -> Self {
         Client {
             client_sock_addr: client_addr,
             last_heart_beat: heart_beat,
+            iv,
         }
     }
 }
@@ -30,8 +33,6 @@ pub struct Registration {
     pub encrypted: bool,
     #[readonly]
     pub salt: [u8; SALT_AND_IV_SIZE as usize],
-    #[readonly]
-    pub iv: [u8; SALT_AND_IV_SIZE as usize],
 }
 
 impl Registration {
@@ -45,11 +46,14 @@ impl Registration {
     ) -> Self {
         Registration {
             net_id,
-            clients: vec![Client::new(client_addr, heart_beat)],
+            clients: vec![Client::new(
+                client_addr,
+                heart_beat,
+                iv.unwrap_or([0; SALT_AND_IV_SIZE as usize]),
+            )],
             encrypted,
             last_heart_beat: heart_beat,
             salt: salt.unwrap_or([0; SALT_AND_IV_SIZE as usize]),
-            iv: iv.unwrap_or([0; SALT_AND_IV_SIZE as usize]),
         }
     }
 }
