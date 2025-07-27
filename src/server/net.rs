@@ -1,3 +1,5 @@
+use crate::utils::send_general_error_to_client;
+
 use super::types;
 use super::utils;
 use orx_concurrent_vec::ConcurrentVec;
@@ -5,8 +7,9 @@ use pea_2_pea::*;
 use rayon::prelude::*;
 
 use std::sync::Arc;
+use std::u8;
 pub async fn handle_request(
-    buf: [u8; BUFFER_SIZE],
+    mut buf: [u8; BUFFER_SIZE],
     socket: std::sync::Arc<std::net::UdpSocket>,
     src: core::net::SocketAddr,
     data_len: usize,
@@ -35,6 +38,80 @@ pub async fn handle_request(
         x if x == ServerMethods::GET as u8 => {
             #[cfg(debug_assertions)]
             println!("GET method");
+
+            if data_len > u8::MAX as usize + 1 {
+                send_general_error_to_client(
+                    src,
+                    std::io::Error::new(std::io::ErrorKind::InvalidData, "Network ID is too long"),
+                    socket,
+                );
+                return; // drop packet if id lenght is biger than posible
+            }
+
+            let net_id: String = match std::str::from_utf8(&buf[1..]) {
+                Ok(s) => s.to_string(),
+                Err(e) => {
+                    eprint!("id to utf-8 failed: {}", e);
+                    utils::send_general_error_to_client(src, e, socket);
+                    return;
+                }
+            };
+
+            let registration = match registration_vector
+                .iter()
+                .find(|elem| elem.map(|s| &s.net_id == &net_id)) // find if id exists
+            {
+                Some(registration) => registration,
+                None => {let _ = socket.send_to(&[ServerResponse::ID_DOESNT_EXIST as u8], src);
+                    return;
+                },
+            }
+            .cloned();
+            let mut send_vec: Vec<u8> = Vec::with_capacity(
+                GetResponseDataPositions::SALT as usize + /*2 times one for SALT and other for first IV*/ 2*SALT_AND_IV_SIZE as usize + 20, /*magic number guess for how long is encrypted residencial ipv4 with port long */
+            ); // use vector to handle many clients
+
+            // lets start serializing
+            send_vec.push(registration.encrypted as u8);
+            send_vec.push(registration.net_id.len() as u8);
+            send_vec.push(registration.clients.len() as u8);
+            // todo!("make sure it allows only 255 client per network max");
+            send_vec.extend_from_slice(&registration.salt);
+
+            registration.clients.iter().for_each(|client| {
+                let sock_addr_len: u8 = client.client_sock_addr.len() as u8;
+
+                send_vec.push(sock_addr_len);
+
+                send_vec.extend_from_slice(&client.iv);
+
+                send_vec.extend_from_slice(&client.client_sock_addr);
+            });
+
+            if (send_vec.len() > BUFFER_SIZE) {
+                send_general_error_to_client(
+                    src,
+                    std::io::Error::new(
+                        std::io::ErrorKind::FileTooLarge,
+                        format!(
+                            "Max number of clients reached count: {}",
+                            registration.clients.len()
+                        ),
+                    ),
+                    socket,
+                );
+                return;
+            }
+
+            match socket.send_to(&send_vec, &src) {
+                Ok(s) => {
+                    #[cfg(debug_assertions)]
+                    eprintln!("send {} bytes", s);
+                }
+                Err(e) => {
+                    eprintln!("Error snding data: {}", e);
+                }
+            }
         }
         x if x == ServerMethods::REGISTER as u8 => {
             #[cfg(debug_assertions)]
