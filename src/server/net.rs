@@ -68,8 +68,11 @@ pub async fn handle_request(
             }
             .cloned();
             let mut send_vec: Vec<u8> = Vec::with_capacity(
+                1/*initial status byte */ +
                 GetResponseDataPositions::SALT as usize + /*2 times one for SALT and other for first IV*/ 2*SALT_AND_IV_SIZE as usize + 20, /*magic number guess for how long is encrypted residencial ipv4 with port long */
             ); // use vector to handle many clients
+
+            send_vec.push(ServerMethods::GET as u8); // this means success
 
             // lets start serializing
             send_vec.push(registration.encrypted as u8);
@@ -88,7 +91,7 @@ pub async fn handle_request(
                 send_vec.extend_from_slice(&client.client_sock_addr);
             });
 
-            if (send_vec.len() > BUFFER_SIZE) {
+            if send_vec.len() > BUFFER_SIZE {
                 send_general_error_to_client(
                     src,
                     std::io::Error::new(
@@ -213,10 +216,98 @@ pub async fn handle_request(
         x if x == ServerMethods::HEARTBEAT as u8 => {
             #[cfg(debug_assertions)]
             println!("HEARTBEAT method");
+
+            let id_len: u8 = if buf[HeartBeatRequestDataPositions::ID_LEN as usize] != 0 {
+                buf[HeartBeatRequestDataPositions::ID_LEN as usize]
+            } else {
+                send_general_error_to_client(
+                    src,
+                    std::io::Error::new(std::io::ErrorKind::InvalidInput, "ID too short!"),
+                    socket,
+                );
+                return;
+            };
+            let sock_addr_len: u8 = if buf[HeartBeatRequestDataPositions::SOCKADDR_LEN as usize]
+                != 0
+            {
+                buf[HeartBeatRequestDataPositions::SOCKADDR_LEN as usize]
+            } else {
+                send_general_error_to_client(
+                    src,
+                    std::io::Error::new(std::io::ErrorKind::InvalidInput, "SockAddr too short!"),
+                    socket,
+                );
+                return;
+            };
+
+            let net_id: String = match std::str::from_utf8(
+                &buf[(HeartBeatRequestDataPositions::DATA as usize)
+                    ..(id_len as usize) + (HeartBeatRequestDataPositions::DATA as usize)],
+            ) {
+                Ok(s) => s.to_string(),
+                Err(e) => {
+                    eprint!("id to utf-8 failed: {}", e);
+                    utils::send_general_error_to_client(src, e, socket);
+                    return;
+                }
+            };
+
+            let iv: [u8; SALT_AND_IV_SIZE as usize] =
+                buf[HeartBeatRequestDataPositions::IV as usize
+                    ..HeartBeatRequestDataPositions::IV as usize + SALT_AND_IV_SIZE as usize]
+                    .try_into()
+                    .unwrap();
+
+            let sock_addr: Vec<u8> = buf[HeartBeatRequestDataPositions::DATA as usize
+                + id_len as usize
+                ..HeartBeatRequestDataPositions::DATA as usize
+                    + id_len as usize
+                    + sock_addr_len as usize]
+                .to_vec();
+
+            match registration_vector
+                .iter()
+                .find(|elem| elem.map(|s| &s.net_id == &net_id)) // find if id exists
+            {
+                Some(reg) => {
+                    let current_time = chrono::Utc::now().timestamp();
+                    reg.update(|r| {r.last_heart_beat = current_time;
+                    match r.clients.par_iter_mut().find_first(|c| *c.client_sock_addr == *sock_addr && c.iv == iv) {
+                        Some(c) => c.last_heart_beat = current_time,
+                        None => {// add new client if it isn't found
+                            r.clients.push(types::Client::new(sock_addr.clone(), current_time, iv));
+                        }
+                    };
+                });
+                }
+                None => {match socket.send_to(&[ServerResponse::ID_DOESNT_EXIST as u8], src) {
+                Ok(s) => {
+                    #[cfg(debug_assertions)]
+                    eprintln!("send {} bytes", s);
+                }
+                Err(e) => {
+                    eprintln!("Error sending data: {}", e);
+                }
+            } return;}
+            }
+            match socket.send_to(&[ServerMethods::HEARTBEAT as u8], src) {
+                // succes responce
+                Ok(s) => {
+                    #[cfg(debug_assertions)]
+                    eprintln!("send {} bytes", s);
+                }
+                Err(e) => {
+                    eprintln!("Error sending data: {}", e);
+                }
+            }
+            return;
         }
         _ => {
-            #[cfg(debug_assertions)]
-            println!("Unknown method");
+            println!(
+                "Warning!: client: {} called Unknown method: 0x{:02x}",
+                src.to_string(),
+                buf[0]
+            );
             return;
         }
     }
