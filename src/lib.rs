@@ -12,7 +12,7 @@ pub enum ServerMethods {
     QUERY = 0, // return IP and port of the client
     REGISTER = 1,
     GET = 2,
-    HEARTBEAT = 3,
+    HEARTBEAT = 3, // this also registers addtional clients
 }
 #[allow(non_camel_case_types)]
 pub enum ServerResponse {
@@ -24,6 +24,7 @@ pub enum ServerResponse {
 #[allow(non_camel_case_types)]
 #[derive(Debug)]
 pub enum ServerErrorResponses {
+    // success server returns id of method
     GENERAL_ERROR(String),
     ID_EXISTS,
     ID_DOESNT_EXIST,
@@ -73,6 +74,14 @@ pub enum GetResponseDataPositions {
     SALT = 4,
     CLIENTS = (SALT_AND_IV_SIZE + RegisterRequestDataPositions::SALT as u8) as isize,
     // after this there will be blocks of this sturcture: one byte size of sockaddr than there will be IV that is SALT_AND_IV_SIZE long and after that there will be sockaddr this repeats until the end of packet
+}
+
+#[allow(non_camel_case_types)]
+pub enum HeartBeatRequestDataPositions {
+    ID_LEN = 1,
+    SOCKADDR_LEN = 2,
+    IV = 3,
+    DATA = (HeartBeatRequestDataPositions::IV as u8 + SALT_AND_IV_SIZE) as isize, // first ID than sockaddr
 }
 
 pub mod shared;

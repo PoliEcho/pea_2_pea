@@ -1,4 +1,5 @@
 use pea_2_pea::*;
+use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, atomic::Ordering};
 
 #[derive(Clone)]
@@ -25,7 +26,6 @@ impl Client {
 pub struct Registration {
     #[readonly]
     pub net_id: String,
-    #[readonly]
     pub clients: Vec<Client>,
 
     pub last_heart_beat: i64,

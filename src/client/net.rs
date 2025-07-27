@@ -142,3 +142,5 @@ pub fn register_request(
         Err(e) => return Err(e),
     }
 }
+
+fn get_request() -> Result<usize, ServerErrorResponses> {}
