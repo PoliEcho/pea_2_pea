@@ -62,7 +62,15 @@ pub async fn handle_request(
                 .find(|elem| elem.map(|s| &s.net_id == &net_id)) // find if id exists
             {
                 Some(registration) => registration,
-                None => {let _ = socket.send_to(&[ServerResponse::ID_DOESNT_EXIST as u8], src);
+                None => {match socket.send_to(&[ServerResponse::ID_DOESNT_EXIST as u8], src){
+                Ok(s) => {
+                    #[cfg(debug_assertions)]
+                    eprintln!("send {} bytes", s);
+                }
+                Err(e) => {
+                    eprintln!("Error snding data: {}", e);
+                }
+            };
                     return;
                 },
             }

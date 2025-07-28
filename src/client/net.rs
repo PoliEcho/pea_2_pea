@@ -13,7 +13,7 @@ pub fn send_and_recv_with_retry(
     buf: &mut [u8; BUFFER_SIZE],
     send_buf: &[u8],
     dst: &SocketAddr,
-    socket: UdpSocket,
+    socket: &UdpSocket,
     retry_max: usize,
 ) -> Result<(usize, usize), ServerErrorResponses> {
     let mut retry_count: usize = 0;
@@ -79,7 +79,7 @@ pub fn send_and_recv_with_retry(
 pub fn query_request(
     buf: &mut [u8; BUFFER_SIZE],
     dst: &SocketAddr,
-    socket: UdpSocket,
+    socket: &UdpSocket,
 ) -> Result<String, ServerErrorResponses> {
     match send_and_recv_with_retry(
         buf,
@@ -104,11 +104,11 @@ pub fn query_request(
 pub fn register_request(
     buf: &mut [u8; BUFFER_SIZE],
     dst: &SocketAddr,
-    socket: UdpSocket,
+    socket: &UdpSocket,
     network: &types::Network,
     public_sock_addr: &Box<[u8]>,
-    iv: [u8; SALT_AND_IV_SIZE as usize],
-) -> Result<([u8; SALT_AND_IV_SIZE as usize], usize), ServerErrorResponses> {
+    iv: &[u8; SALT_AND_IV_SIZE as usize],
+) -> Result<usize, ServerErrorResponses> {
     let mut send_buf: Box<[u8]> = vec![
         0u8;
         RegisterRequestDataPositions::DATA as usize
@@ -127,7 +127,7 @@ pub fn register_request(
 
     send_buf[RegisterRequestDataPositions::IV as usize
         ..RegisterRequestDataPositions::IV as usize + SALT_AND_IV_SIZE as usize]
-        .copy_from_slice(&iv); // copy iv ad salt do the request
+        .copy_from_slice(iv); // copy iv ad salt do the request
     send_buf[RegisterRequestDataPositions::SALT as usize
         ..RegisterRequestDataPositions::SALT as usize + SALT_AND_IV_SIZE as usize]
         .copy_from_slice(&network.salt);
@@ -141,7 +141,7 @@ pub fn register_request(
         .copy_from_slice(&public_sock_addr);
 
     match send_and_recv_with_retry(buf, &send_buf, dst, socket, STANDARD_RETRY_MAX) {
-        Ok((data_lenght, _)) => return Ok((iv, data_lenght)),
+        Ok((data_lenght, _)) => return Ok(data_lenght),
         Err(e) => return Err(e),
     }
 }
@@ -149,9 +149,9 @@ pub fn register_request(
 pub fn get_request(
     buf: &mut [u8; BUFFER_SIZE],
     dst: &SocketAddr,
-    socket: UdpSocket,
-    network_id: String,
-    password: Option<String>,
+    socket: &UdpSocket,
+    network_id: &String,
+    password: &Option<String>,
 ) -> Result<types::Network, ServerErrorResponses> {
     let mut send_buf: Box<[u8]> =
         vec![0u8; GetRequestDataPositions::ID as usize + network_id.len()].into_boxed_slice();
@@ -269,13 +269,19 @@ pub fn get_request(
         offset += SALT_AND_IV_SIZE as usize + sock_addr_len as usize;
     }
 
-    return Ok(types::Network::new(encrypted, key, network_id, salt, peers));
+    return Ok(types::Network::new(
+        encrypted,
+        key,
+        network_id.to_string(),
+        salt,
+        peers,
+    ));
 }
 
 pub fn send_heartbeat(
     buf: &mut [u8; BUFFER_SIZE],
     dst: &SocketAddr,
-    socket: UdpSocket,
+    socket: &UdpSocket,
     network: &types::Network,
     my_public_sock_addr: &Box<[u8]>,
     iv: &[u8; SALT_AND_IV_SIZE as usize],

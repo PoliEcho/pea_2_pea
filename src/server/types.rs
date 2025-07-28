@@ -1,5 +1,4 @@
 use pea_2_pea::*;
-use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, atomic::Ordering};
 
 #[derive(Clone)]

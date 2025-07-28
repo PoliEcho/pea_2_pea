@@ -4,7 +4,7 @@ pub const SERVER_PORT: u16 = 3543;
 pub const BUFFER_SIZE: usize = 65535;
 pub const DEFAULT_TIMEOUT: u64 = 30;
 pub const VERSION: &str = "v0.1";
-pub const SALT_AND_IV_SIZE: u8 = 16;
+pub const SALT_AND_IV_SIZE: usize = 16;
 pub const STANDARD_RETRY_MAX: usize = 10;
 
 #[repr(u8)]
@@ -14,11 +14,14 @@ pub enum ServerMethods {
     GET = 2,
     HEARTBEAT = 3, // this also registers addtional clients
 }
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[allow(non_camel_case_types)]
+#[repr(u8)]
 pub enum ServerResponse {
     GENERAL_ERROR = 255,
     ID_EXISTS = 254,
     ID_DOESNT_EXIST = 253, // both error since sometimes it is the problem that the id exist and somethimes problem is that is doesn't
+    IO = 252,              // had to place it here to avoid creating anther enum
 }
 
 #[allow(non_camel_case_types)]
@@ -55,33 +58,51 @@ impl ServerErrorResponses {
         }
     }
 }
+impl ServerErrorResponses {
+    pub fn kind(&self) -> ServerResponse {
+        match self {
+            ServerErrorResponses::GENERAL_ERROR(_) => ServerResponse::GENERAL_ERROR,
+            ServerErrorResponses::ID_EXISTS => ServerResponse::ID_EXISTS,
+            ServerErrorResponses::ID_DOESNT_EXIST => ServerResponse::ID_DOESNT_EXIST,
+            ServerErrorResponses::IO(_) => ServerResponse::IO,
+        }
+    }
+}
 
 #[allow(non_camel_case_types)]
+#[repr(usize)]
 pub enum RegisterRequestDataPositions {
     ENCRYPTED = 1, // this feeld should be 0 if not encrypted
     ID_LEN = 2,
     SOCKADDR_LEN = 3,
     SALT = 4,
-    IV = (SALT_AND_IV_SIZE + RegisterRequestDataPositions::SALT as u8) as isize,
-    DATA = (SALT_AND_IV_SIZE + RegisterRequestDataPositions::IV as u8) as isize, // after this there will be id and sockaddr in string or encrypted form after
+    IV = (SALT_AND_IV_SIZE as usize + RegisterRequestDataPositions::SALT as usize) as usize,
+    DATA = (SALT_AND_IV_SIZE as usize + RegisterRequestDataPositions::IV as usize) as usize, // after this there will be id and sockaddr in string or encrypted form after
 }
 
 #[allow(non_camel_case_types)]
+#[repr(usize)]
+pub enum GetRequestDataPositions {
+    ID = 1, // no need for len since id is the whoule rest of the packet
+}
+
+#[allow(non_camel_case_types)]
+#[repr(usize)]
 pub enum GetResponseDataPositions {
     ENCRYPTED = 1, // this feeld should be 0 if not encrypted
-    ID_LEN = 2,
-    NUM_OF_CLIENTS = 3,
-    SALT = 4,
-    CLIENTS = (SALT_AND_IV_SIZE + RegisterRequestDataPositions::SALT as u8) as isize,
+    NUM_OF_CLIENTS = 2,
+    SALT = 3,
+    CLIENTS = (SALT_AND_IV_SIZE as usize + RegisterRequestDataPositions::SALT as usize) as usize,
     // after this there will be blocks of this sturcture: one byte size of sockaddr than there will be IV that is SALT_AND_IV_SIZE long and after that there will be sockaddr this repeats until the end of packet
 }
 
 #[allow(non_camel_case_types)]
+#[repr(usize)]
 pub enum HeartBeatRequestDataPositions {
     ID_LEN = 1,
     SOCKADDR_LEN = 2,
     IV = 3,
-    DATA = (HeartBeatRequestDataPositions::IV as u8 + SALT_AND_IV_SIZE) as isize, // first ID than sockaddr
+    DATA = (HeartBeatRequestDataPositions::IV as usize + SALT_AND_IV_SIZE as usize) as usize, // first ID than sockaddr
 }
 
 pub mod shared;

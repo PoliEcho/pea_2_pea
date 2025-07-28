@@ -1,6 +1,6 @@
 mod net;
 mod types;
-use pea_2_pea::{shared::crypto::derive_key_from_password, *};
+use pea_2_pea::*;
 use rand::RngCore;
 
 use std::{net::UdpSocket, process::exit, time::Duration};
@@ -104,6 +104,7 @@ fn main() -> std::io::Result<()> {
                 &cli.password,
             ) {
                 Ok(n) => {
+                    eprintln!("Network exists joining it");
                     let _ = net::send_heartbeat(
                         &mut buf,
                         &server_SocketAddr,
@@ -115,6 +116,7 @@ fn main() -> std::io::Result<()> {
                     n
                 }
                 Err(e) if e.kind() == ServerResponse::ID_DOESNT_EXIST => {
+                    eprintln!("Network does not exist creating it!");
                     let tmp_v_net: Network = Network::new(
                         match cli.password {
                             Some(_) => true,
