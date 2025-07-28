@@ -92,7 +92,8 @@ pub enum GetResponseDataPositions {
     ENCRYPTED = 1, // this feeld should be 0 if not encrypted
     NUM_OF_CLIENTS = 2,
     SALT = 3,
-    CLIENTS = (SALT_AND_IV_SIZE as usize + RegisterRequestDataPositions::SALT as usize) as usize,
+    CLIENTS =
+        (SALT_AND_IV_SIZE as usize + RegisterRequestDataPositions::SALT as usize) - 1 as usize,
     // after this there will be blocks of this sturcture: one byte size of sockaddr than there will be IV that is SALT_AND_IV_SIZE long and after that there will be sockaddr this repeats until the end of packet
 }
 

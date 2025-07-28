@@ -52,6 +52,7 @@ fn main() -> std::io::Result<()> {
         })()
         .expect("Failed to bind to any available port");
 
+        #[cfg(not(feature = "no-timeout"))]
         socket.set_read_timeout(Some(Duration::new(10, 0)))?; // set timeout to 10 seconds
 
         let server_port: u16 = (|| -> u16 {
@@ -82,6 +83,14 @@ fn main() -> std::io::Result<()> {
                 rng.fill_bytes(&mut salt);
                 rng.fill_bytes(&mut iv);
                 let enc_key_tmp = shared::crypto::derive_key_from_password(p.as_bytes(), &salt);
+                #[cfg(debug_assertions)]
+                eprintln!(
+                    "key: {}",
+                    enc_key_tmp
+                        .iter()
+                        .map(|x| format!("{:02X} ", x))
+                        .collect::<String>()
+                );
                 (
                     shared::crypto::encrypt(&enc_key_tmp, &iv, public_sock_addr_raw.as_bytes())
                         .unwrap()

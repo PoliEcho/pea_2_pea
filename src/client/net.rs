@@ -116,6 +116,22 @@ pub fn register_request(
             + public_sock_addr.len()
     ]
     .into_boxed_slice();
+
+    #[cfg(debug_assertions)]
+    eprintln!(
+        "registering network:\niv: {}\nSockAddr: {}\nsalt: {}",
+        iv.iter().map(|x| format!("{:02X} ", x)).collect::<String>(),
+        public_sock_addr
+            .iter()
+            .map(|x| format!("{:02X} ", x))
+            .collect::<String>(),
+        network
+            .salt
+            .iter()
+            .map(|x| format!("{:02X} ", x))
+            .collect::<String>(),
+    );
+
     send_buf[0] = ServerMethods::REGISTER as u8; // set metod identification byte
     send_buf[RegisterRequestDataPositions::ENCRYPTED as usize] = network.encrypted as u8;
 
@@ -184,7 +200,7 @@ pub fn get_request(
         false
     };
 
-    let num_of_clients: u8 = buf[GetResponseDataPositions::NUM_OF_CLIENTS as usize];
+    let mut num_of_clients: u8 = buf[GetResponseDataPositions::NUM_OF_CLIENTS as usize];
 
     let salt: [u8; SALT_AND_IV_SIZE as usize] = buf[GetResponseDataPositions::SALT as usize
         ..GetResponseDataPositions::SALT as usize + SALT_AND_IV_SIZE as usize]
@@ -198,6 +214,13 @@ pub fn get_request(
         Some(p) => shared::crypto::derive_key_from_password(p.as_bytes(), &salt),
         None => [0; 32],
     };
+    #[cfg(debug_assertions)]
+    eprintln!(
+        "key: {}",
+        key.iter()
+            .map(|x| format!("{:02X} ", x))
+            .collect::<String>()
+    );
 
     while num_of_clients != 0 {
         let sock_addr_len: u8 = buf[GetResponseDataPositions::CLIENTS as usize + offset];
@@ -211,6 +234,14 @@ pub fn get_request(
                     + sock_addr_len as usize]
                 .to_vec()
                 .into_boxed_slice();
+        #[cfg(debug_assertions)]
+        eprintln!(
+            "sock_addr_raw: {}",
+            sock_addr_raw
+                .iter()
+                .map(|x| format!("{:02X} ", x))
+                .collect::<String>()
+        );
         loop {
             // loop used to easily skip peer
             let peer: SocketAddr = if encrypted {
@@ -267,6 +298,7 @@ pub fn get_request(
             break;
         }
         offset += SALT_AND_IV_SIZE as usize + sock_addr_len as usize;
+        num_of_clients -= 1;
     }
 
     return Ok(types::Network::new(
@@ -291,6 +323,7 @@ pub fn send_heartbeat(
         HeartBeatRequestDataPositions::IV as usize
             + SALT_AND_IV_SIZE as usize
             + my_public_sock_addr.len()
+            + network.net_id.len()
     ]
     .into_boxed_slice();
 

@@ -48,7 +48,7 @@ pub async fn handle_request(
                 return; // drop packet if id lenght is biger than posible
             }
 
-            let net_id: String = match std::str::from_utf8(&buf[1..]) {
+            let net_id: String = match std::str::from_utf8(&buf[1..data_len]) {
                 Ok(s) => s.to_string(),
                 Err(e) => {
                     eprint!("id to utf-8 failed: {}", e);
@@ -68,7 +68,7 @@ pub async fn handle_request(
                     eprintln!("send {} bytes", s);
                 }
                 Err(e) => {
-                    eprintln!("Error snding data: {}", e);
+                    eprintln!("Error sending data: {}", e);
                 }
             };
                     return;
@@ -84,10 +84,12 @@ pub async fn handle_request(
 
             // lets start serializing
             send_vec.push(registration.encrypted as u8);
-            send_vec.push(registration.net_id.len() as u8);
             send_vec.push(registration.clients.len() as u8);
             // todo!("make sure it allows only 255 client per network max");
             send_vec.extend_from_slice(&registration.salt);
+
+            #[cfg(debug_assertions)]
+            eprintln!("Found {} clients", registration.clients.len());
 
             registration.clients.iter().for_each(|client| {
                 let sock_addr_len: u8 = client.client_sock_addr.len() as u8;
@@ -131,7 +133,7 @@ pub async fn handle_request(
 
             //read lenght of sockaddr
             // rustc be like RUST HAS NO TERNARY OPERATON USE if-else
-            let len_id: u8 = if buf[RegisterRequestDataPositions::ID_LEN as usize] != 0 {
+            let id_len: u8 = if buf[RegisterRequestDataPositions::ID_LEN as usize] != 0 {
                 buf[RegisterRequestDataPositions::ID_LEN as usize]
             } else {
                 return;
@@ -146,7 +148,7 @@ pub async fn handle_request(
 
             let net_id: String = match std::str::from_utf8(
                 &buf[(RegisterRequestDataPositions::DATA as usize)
-                    ..(len_id as usize) + (RegisterRequestDataPositions::DATA as usize)],
+                    ..(id_len as usize) + (RegisterRequestDataPositions::DATA as usize)],
             ) {
                 Ok(s) => s.to_string(),
                 Err(e) => {
@@ -197,12 +199,33 @@ pub async fn handle_request(
                 salt = None;
                 iv = None;
             }
+            let client_sock_addr: Vec<u8> = buf[RegisterRequestDataPositions::DATA as usize
+                + id_len as usize
+                ..RegisterRequestDataPositions::DATA as usize
+                    + id_len as usize
+                    + (sock_addr_len as usize)]
+                .to_vec();
+
+            #[cfg(debug_assertions)]
+            eprintln!(
+                "first client registerd:\n iv: {}\nSockAddr: {}\nsalt: {}",
+                iv.iter()
+                    .flatten()
+                    .map(|x| format!("{:02X} ", x))
+                    .collect::<String>(),
+                client_sock_addr
+                    .iter()
+                    .map(|x| format!("{:02X} ", x))
+                    .collect::<String>(),
+                salt.iter()
+                    .flatten()
+                    .map(|x| format!("{:02X} ", x))
+                    .collect::<String>(),
+            );
 
             registration_vector.push(types::Registration::new(
                 net_id,
-                buf[(RegisterRequestDataPositions::DATA as usize)
-                    ..(RegisterRequestDataPositions::DATA as usize) + (sock_addr_len as usize)]
-                    .to_vec(),
+                client_sock_addr,
                 encrypted,
                 chrono::Utc::now().timestamp(),
                 salt,

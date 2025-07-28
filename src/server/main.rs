@@ -24,9 +24,10 @@ fn main() -> std::io::Result<()> {
         let registration_vector: Arc<ConcurrentVec<types::Registration>> =
             Arc::new(orx_concurrent_vec::ConcurrentVec::new());
 
-        let mut buf: [u8; pea_2_pea::BUFFER_SIZE] = [0; pea_2_pea::BUFFER_SIZE];
+        let mut buf: [u8; pea_2_pea::BUFFER_SIZE] = [0u8; pea_2_pea::BUFFER_SIZE];
         smol::block_on(async {
             loop {
+                buf.fill(0);
                 match socket.recv_from(&mut buf) {
                     Ok((data_length, src)) => {
                         smol::spawn(net::handle_request(

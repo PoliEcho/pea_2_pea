@@ -27,3 +27,6 @@ readonly = "0.2.13"
 sha2 = "0.10.9"
 smol = "2.0.2"
 tappers = "0.4.2"
+
+[features]
+no-timeout = []
