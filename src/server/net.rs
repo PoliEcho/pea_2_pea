@@ -92,6 +92,20 @@ pub async fn handle_request(
             eprintln!("Found {} clients", registration.clients.len());
 
             registration.clients.iter().for_each(|client| {
+                #[cfg(debug_assertions)]
+                eprintln!(
+                    "Client:\nIV: {}\nSockAddr: {}",
+                    client
+                        .iv
+                        .iter()
+                        .map(|x| format!("{:02X} ", x))
+                        .collect::<String>(),
+                    client
+                        .client_sock_addr
+                        .iter()
+                        .map(|x| format!("{:02X} ", x))
+                        .collect::<String>(),
+                );
                 let sock_addr_len: u8 = client.client_sock_addr.len() as u8;
 
                 send_vec.push(sock_addr_len);
@@ -295,6 +309,16 @@ pub async fn handle_request(
                     + id_len as usize
                     + sock_addr_len as usize]
                 .to_vec();
+
+            #[cfg(debug_assertions)]
+            eprintln!(
+                "IV: {}\nSockAddr: {}",
+                iv.iter().map(|x| format!("{:02X} ", x)).collect::<String>(),
+                sock_addr
+                    .iter()
+                    .map(|x| format!("{:02X} ", x))
+                    .collect::<String>(),
+            );
 
             match registration_vector
                 .iter()

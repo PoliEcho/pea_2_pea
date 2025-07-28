@@ -81,6 +81,8 @@ pub fn query_request(
     dst: &SocketAddr,
     socket: &UdpSocket,
 ) -> Result<String, ServerErrorResponses> {
+    #[cfg(debug_assertions)]
+    println!("QUERY method");
     match send_and_recv_with_retry(
         buf,
         &[ServerMethods::QUERY as u8],
@@ -109,6 +111,8 @@ pub fn register_request(
     public_sock_addr: &Box<[u8]>,
     iv: &[u8; SALT_AND_IV_SIZE as usize],
 ) -> Result<usize, ServerErrorResponses> {
+    #[cfg(debug_assertions)]
+    println!("REGISTER method");
     let mut send_buf: Box<[u8]> = vec![
         0u8;
         RegisterRequestDataPositions::DATA as usize
@@ -169,6 +173,8 @@ pub fn get_request(
     network_id: &String,
     password: &Option<String>,
 ) -> Result<types::Network, ServerErrorResponses> {
+    #[cfg(debug_assertions)]
+    println!("GET method");
     let mut send_buf: Box<[u8]> =
         vec![0u8; GetRequestDataPositions::ID as usize + network_id.len()].into_boxed_slice();
     send_buf[0] = ServerMethods::GET as u8;
@@ -234,14 +240,7 @@ pub fn get_request(
                     + sock_addr_len as usize]
                 .to_vec()
                 .into_boxed_slice();
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "sock_addr_raw: {}",
-            sock_addr_raw
-                .iter()
-                .map(|x| format!("{:02X} ", x))
-                .collect::<String>()
-        );
+
         loop {
             // loop used to easily skip peer
             let peer: SocketAddr = if encrypted {
@@ -252,12 +251,21 @@ pub fn get_request(
                             + offset
                             + SALT_AND_IV_SIZE as usize],
                 );
+                #[cfg(debug_assertions)]
+                eprintln!(
+                    "IV: {}\nSockAddr: {}",
+                    iv.iter().map(|x| format!("{:02X} ", x)).collect::<String>(),
+                    sock_addr_raw
+                        .iter()
+                        .map(|x| format!("{:02X} ", x))
+                        .collect::<String>(),
+                );
                 match SocketAddr::from_str(&{
                     // sacrificed a goat to borrow checker to make this work
                     let decrypted = match shared::crypto::decrypt(&key, &iv, &sock_addr_raw) {
                         Ok(v) => v,
-                        Err(_) => {
-                            eprintln!("Warning peer ignored due to invalid data");
+                        Err(e) => {
+                            eprintln!("Warning peer ignored due to invalid data\nError: {}", e);
                             break;
                         }
                     };
@@ -272,8 +280,8 @@ pub fn get_request(
                     }
                 }) {
                     Ok(s) => s,
-                    Err(_) => {
-                        eprintln!("Warning peer ignored due to invalid data");
+                    Err(e) => {
+                        eprintln!("Warning peer ignored due to invalid data\nError: {}", e);
                         break;
                     }
                 }
@@ -287,8 +295,8 @@ pub fn get_request(
                     }
                 }) {
                     Ok(s) => s,
-                    Err(_) => {
-                        eprintln!("Warning peer ignored due to invalid data");
+                    Err(e) => {
+                        eprintln!("Warning peer ignored due to invalid data\nError: {}", e);
                         break;
                     }
                 }
@@ -297,7 +305,7 @@ pub fn get_request(
             peers.push(peer);
             break;
         }
-        offset += SALT_AND_IV_SIZE as usize + sock_addr_len as usize;
+        offset += SALT_AND_IV_SIZE as usize + sock_addr_len as usize + 1 /*for size byte */;
         num_of_clients -= 1;
     }
 
@@ -318,6 +326,8 @@ pub fn send_heartbeat(
     my_public_sock_addr: &Box<[u8]>,
     iv: &[u8; SALT_AND_IV_SIZE as usize],
 ) -> Result<usize, ServerErrorResponses> {
+    #[cfg(debug_assertions)]
+    println!("HEARTBEAT method");
     let mut send_buf: Box<[u8]> = vec![
         0u8;
         HeartBeatRequestDataPositions::IV as usize
@@ -345,6 +355,16 @@ pub fn send_heartbeat(
             + network.net_id.len()
             + my_public_sock_addr.len()]
         .copy_from_slice(&my_public_sock_addr);
+
+    #[cfg(debug_assertions)]
+    eprintln!(
+        "IV: {}\nSockAddr: {}",
+        iv.iter().map(|x| format!("{:02X} ", x)).collect::<String>(),
+        my_public_sock_addr
+            .iter()
+            .map(|x| format!("{:02X} ", x))
+            .collect::<String>(),
+    );
 
     match send_and_recv_with_retry(buf, &send_buf, dst, socket, STANDARD_RETRY_MAX) {
         Ok((data_lenght, _)) => return Ok(data_lenght),

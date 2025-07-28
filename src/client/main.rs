@@ -119,7 +119,9 @@ fn main() -> std::io::Result<()> {
                         &server_SocketAddr,
                         &socket,
                         &n,
-                        &public_sock_addr,
+                        &shared::crypto::encrypt(&n.key, &iv, public_sock_addr_raw.as_bytes())
+                            .unwrap()
+                            .into_boxed_slice(),
                         &iv,
                     );
                     n
