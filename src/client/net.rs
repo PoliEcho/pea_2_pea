@@ -1,22 +1,25 @@
 use std::{
     io::ErrorKind,
     net::{SocketAddr, UdpSocket},
+    str::FromStr,
 };
 
 use pea_2_pea::*;
 use rand::RngCore;
 
+use super::types;
+
 // return data_lenght and number of retryes
 pub fn send_and_recv_with_retry(
     buf: &mut [u8; BUFFER_SIZE],
+    send_buf: &[u8],
     dst: &SocketAddr,
     socket: UdpSocket,
     retry_max: usize,
 ) -> Result<(usize, usize), ServerErrorResponses> {
-    let mut send_buf = *buf;
     let mut retry_count: usize = 0;
     loop {
-        match socket.send_to(&mut send_buf, dst) {
+        match socket.send_to(send_buf, dst) {
             Ok(s) => {
                 #[cfg(debug_assertions)]
                 eprintln!("send {} bytes", s);
@@ -78,9 +81,23 @@ pub fn query_request(
     buf: &mut [u8; BUFFER_SIZE],
     dst: &SocketAddr,
     socket: UdpSocket,
-) -> Result<usize, ServerErrorResponses> {
-    match send_and_recv_with_retry(buf, dst, socket, STANDARD_RETRY_MAX) {
-        Ok((data_lenght, _)) => return Ok(data_lenght),
+) -> Result<String, ServerErrorResponses> {
+    match send_and_recv_with_retry(
+        buf,
+        &[ServerMethods::QUERY as u8],
+        dst,
+        socket,
+        STANDARD_RETRY_MAX,
+    ) {
+        Ok((data_lenght, _)) => {
+            return Ok(match std::str::from_utf8(&buf[1..data_lenght]) {
+                Ok(s) => s.to_string(),
+                Err(e) => {
+                    eprint!("id to utf-8 failed: {}", e);
+                    return Err(ServerErrorResponses::GENERAL_ERROR(format!("{}", e)));
+                }
+            });
+        }
         Err(e) => return Err(e),
     }
 }
@@ -94,15 +111,21 @@ pub fn register_request(
     mut public_sock_addr: Vec<u8>,
     network_id: String,
 ) -> Result<usize, ServerErrorResponses> {
-    buf[0] = ServerMethods::REGISTER as u8; // set metod identification byte
-    buf[RegisterRequestDataPositions::ENCRYPTED as usize] = match encryption_key {
+    let mut send_buf: Box<[u8]> =
+        vec![
+            0u8;
+            RegisterRequestDataPositions::DATA as usize + network_id.len() + public_sock_addr.len()
+        ]
+        .into_boxed_slice();
+    send_buf[0] = ServerMethods::REGISTER as u8; // set metod identification byte
+    send_buf[RegisterRequestDataPositions::ENCRYPTED as usize] = match encryption_key {
         // stor encryption flag byte
         Some(_) => true as u8,
         None => false as u8,
     };
-    buf[RegisterRequestDataPositions::ID_LEN as usize] = network_id.len() as u8;
+    send_buf[RegisterRequestDataPositions::ID_LEN as usize] = network_id.len() as u8;
 
-    buf[RegisterRequestDataPositions::DATA as usize
+    send_buf[RegisterRequestDataPositions::DATA as usize
         ..RegisterRequestDataPositions::DATA as usize + network_id.len()]
         .copy_from_slice(network_id.as_bytes()); // store network id
 
@@ -124,23 +147,147 @@ pub fn register_request(
         }
     };
 
-    buf[RegisterRequestDataPositions::IV as usize
+    send_buf[RegisterRequestDataPositions::IV as usize
         ..RegisterRequestDataPositions::IV as usize + SALT_AND_IV_SIZE as usize]
         .copy_from_slice(&iv); // copy iv ad salt do the request
-    buf[RegisterRequestDataPositions::SALT as usize
+    send_buf[RegisterRequestDataPositions::SALT as usize
         ..RegisterRequestDataPositions::SALT as usize + SALT_AND_IV_SIZE as usize]
         .copy_from_slice(&salt);
 
-    buf[RegisterRequestDataPositions::SOCKADDR_LEN as usize] = public_sock_addr.len() as u8;
+    send_buf[RegisterRequestDataPositions::SOCKADDR_LEN as usize] = public_sock_addr.len() as u8;
 
-    buf[RegisterRequestDataPositions::DATA as usize + network_id.len()
+    send_buf[RegisterRequestDataPositions::DATA as usize + network_id.len()
         ..RegisterRequestDataPositions::DATA as usize + network_id.len() + public_sock_addr.len()]
         .copy_from_slice(&public_sock_addr);
 
-    match send_and_recv_with_retry(buf, dst, socket, STANDARD_RETRY_MAX) {
+    match send_and_recv_with_retry(buf, &send_buf, dst, socket, STANDARD_RETRY_MAX) {
         Ok((data_lenght, _)) => return Ok(data_lenght),
         Err(e) => return Err(e),
     }
 }
 
-fn get_request() -> Result<usize, ServerErrorResponses> {}
+fn get_request(
+    buf: &mut [u8; BUFFER_SIZE],
+    dst: &SocketAddr,
+    socket: UdpSocket,
+    network_id: String,
+    password: Option<String>,
+) -> Result<types::Network, ServerErrorResponses> {
+    let mut send_buf: Box<[u8]> =
+        vec![0u8; GetRequestDataPositions::ID as usize + network_id.len()].into_boxed_slice();
+    send_buf[0] = ServerMethods::GET as u8;
+    send_buf[GetRequestDataPositions::ID as usize
+        ..GetRequestDataPositions::ID as usize + network_id.len()]
+        .copy_from_slice(network_id.as_bytes());
+
+    // this is unused now it will be used to bounds check in the future
+    let data_lenght: usize =
+        match send_and_recv_with_retry(buf, &send_buf, dst, socket, STANDARD_RETRY_MAX) {
+            Ok((data_lenght, _)) => data_lenght,
+            Err(e) => return Err(e),
+        };
+
+    let encrypted: bool = if buf[GetResponseDataPositions::ENCRYPTED as usize] != 0 {
+        match password {
+            Some(_) => true,
+            None => panic!("Network is encrypted but no password was provided"),
+        }
+    } else {
+        match password {
+            Some(_) => {
+                eprintln!(
+                    "Warning! Network is not encrypted but password was provided, ignoring password!"
+                )
+            }
+            None => {}
+        }
+        false
+    };
+
+    let num_of_clients: u8 = buf[GetResponseDataPositions::NUM_OF_CLIENTS as usize];
+
+    let salt: [u8; SALT_AND_IV_SIZE as usize] = buf[GetResponseDataPositions::SALT as usize
+        ..GetResponseDataPositions::SALT as usize + SALT_AND_IV_SIZE as usize]
+        .try_into()
+        .unwrap();
+
+    let mut offset: usize = 0;
+    let mut peers: Vec<SocketAddr> = Vec::with_capacity(1); // at least one client
+
+    let key: [u8; 32] = match password {
+        Some(p) => shared::crypto::derive_key_from_password(p.as_bytes(), &salt),
+        None => [0; 32],
+    };
+
+    while num_of_clients != 0 {
+        let sock_addr_len: u8 = buf[GetResponseDataPositions::CLIENTS as usize + offset];
+        let mut iv: [u8; SALT_AND_IV_SIZE as usize] = [0; SALT_AND_IV_SIZE as usize];
+        let sock_addr_raw: Box<[u8]> =
+            buf[GetResponseDataPositions::CLIENTS as usize + 1 + offset + SALT_AND_IV_SIZE as usize
+                ..GetResponseDataPositions::CLIENTS as usize
+                    + 1
+                    + offset
+                    + SALT_AND_IV_SIZE as usize
+                    + sock_addr_len as usize]
+                .to_vec()
+                .into_boxed_slice();
+        loop {
+            // loop used to easily skip peer
+            let peer: SocketAddr = if encrypted {
+                iv.copy_from_slice(
+                    &buf[GetResponseDataPositions::CLIENTS as usize + 1 + offset
+                        ..GetResponseDataPositions::CLIENTS as usize
+                            + 1
+                            + offset
+                            + SALT_AND_IV_SIZE as usize],
+                );
+                match SocketAddr::from_str(&{
+                    // sacrificed a goat to borrow checker to make this work
+                    let decrypted = match shared::crypto::decrypt(&key, &iv, &sock_addr_raw) {
+                        Ok(v) => v,
+                        Err(_) => {
+                            eprintln!("Warning peer ignored due to invalid data");
+                            break;
+                        }
+                    };
+
+                    match std::str::from_utf8(decrypted.as_slice()) {
+                        Ok(s) => s.to_string(),
+                        Err(e) => {
+                            eprint!("id to utf-8 failed: {}", e);
+                            eprintln!("Warning peer ignored due to invalid data");
+                            break;
+                        }
+                    }
+                }) {
+                    Ok(s) => s,
+                    Err(_) => {
+                        eprintln!("Warning peer ignored due to invalid data");
+                        break;
+                    }
+                }
+            } else {
+                match SocketAddr::from_str(&match std::str::from_utf8(&sock_addr_raw) {
+                    Ok(s) => s.to_string(),
+                    Err(e) => {
+                        eprint!("id to utf-8 failed: {}", e);
+                        eprintln!("Warning peer ignored due to invalid data");
+                        break;
+                    }
+                }) {
+                    Ok(s) => s,
+                    Err(_) => {
+                        eprintln!("Warning peer ignored due to invalid data");
+                        break;
+                    }
+                }
+            };
+
+            peers.push(peer);
+            break;
+        }
+        offset += SALT_AND_IV_SIZE as usize + sock_addr_len as usize;
+    }
+
+    return Ok(types::Network::new(encrypted, key, network_id, salt, peers));
+}
