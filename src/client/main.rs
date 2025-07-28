@@ -1,13 +1,11 @@
 mod net;
-use pea_2_pea::*;
+mod types;
+use pea_2_pea::{shared::crypto::derive_key_from_password, *};
 use rand::RngCore;
 
-use std::{
-    io::{Error, ErrorKind, Read, Write},
-    net::UdpSocket,
-    process::exit,
-    time::Duration,
-};
+use std::{net::UdpSocket, process::exit, time::Duration};
+
+use crate::types::Network;
 
 #[derive(clap::Parser)]
 #[command(name = "pea_2_pea")]
@@ -70,13 +68,80 @@ fn main() -> std::io::Result<()> {
 
         let mut buf: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
         // query here
-        let mut data_lenght: usize = net::query_request(&mut buf, &server_SocketAddr, socket)?;
+        let public_sock_addr_raw: String =
+            match net::query_request(&mut buf, &server_SocketAddr, &socket) {
+                Ok(s) => s,
+                Err(e) => return Err(ServerErrorResponses::into_io_error(e)),
+            };
 
-        let mut public_sock_addr: Vec<u8> = buf[1..data_lenght].to_vec();
+        let mut salt: [u8; SALT_AND_IV_SIZE] = [0u8; SALT_AND_IV_SIZE];
+        let mut iv: [u8; SALT_AND_IV_SIZE] = [0u8; SALT_AND_IV_SIZE];
+        let (public_sock_addr, encryption_key) = match cli.password {
+            Some(ref p) => {
+                let mut rng = rand::rng();
+                rng.fill_bytes(&mut salt);
+                rng.fill_bytes(&mut iv);
+                let enc_key_tmp = shared::crypto::derive_key_from_password(p.as_bytes(), &salt);
+                (
+                    shared::crypto::encrypt(&enc_key_tmp, &iv, public_sock_addr_raw.as_bytes())
+                        .unwrap()
+                        .into_boxed_slice(),
+                    enc_key_tmp,
+                )
+            }
+            None => (
+                public_sock_addr_raw.as_bytes().to_vec().into_boxed_slice(),
+                [0u8; 32],
+            ),
+        };
 
-        // register network
-
-        let mut salt: Option<[u8; SALT_AND_IV_SIZE as usize]>;
+        let virtual_network: Network = {
+            match net::get_request(
+                &mut buf,
+                &server_SocketAddr,
+                &socket,
+                &cli.network_id,
+                &cli.password,
+            ) {
+                Ok(n) => {
+                    let _ = net::send_heartbeat(
+                        &mut buf,
+                        &server_SocketAddr,
+                        &socket,
+                        &n,
+                        &public_sock_addr,
+                        &iv,
+                    );
+                    n
+                }
+                Err(e) if e.kind() == ServerResponse::ID_DOESNT_EXIST => {
+                    let tmp_v_net: Network = Network::new(
+                        match cli.password {
+                            Some(_) => true,
+                            None => false,
+                        },
+                        encryption_key,
+                        cli.network_id,
+                        salt,
+                        Vec::with_capacity(1),
+                    );
+                    net::register_request(
+                        &mut buf,
+                        &server_SocketAddr,
+                        &socket,
+                        &tmp_v_net,
+                        &public_sock_addr,
+                        &iv,
+                    )
+                    .unwrap();
+                    tmp_v_net
+                }
+                Err(e) => {
+                    eprintln!("Failed to get data from server. Reason: {}", e);
+                    exit(5); //EIO
+                }
+            }
+        };
     }
     Ok(())
 }
