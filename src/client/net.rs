@@ -5,7 +5,6 @@ use std::{
 };
 
 use pea_2_pea::*;
-use rand::RngCore;
 
 use super::types;
 
@@ -106,67 +105,48 @@ pub fn register_request(
     buf: &mut [u8; BUFFER_SIZE],
     dst: &SocketAddr,
     socket: UdpSocket,
-    encryption_key: Option<[u8; 32]>,
-    salt_opt: Option<[u8; SALT_AND_IV_SIZE as usize]>,
-    mut public_sock_addr: Vec<u8>,
-    network_id: String,
-) -> Result<usize, ServerErrorResponses> {
-    let mut send_buf: Box<[u8]> =
-        vec![
-            0u8;
-            RegisterRequestDataPositions::DATA as usize + network_id.len() + public_sock_addr.len()
-        ]
-        .into_boxed_slice();
+    network: &types::Network,
+    public_sock_addr: &Box<[u8]>,
+    iv: [u8; SALT_AND_IV_SIZE as usize],
+) -> Result<([u8; SALT_AND_IV_SIZE as usize], usize), ServerErrorResponses> {
+    let mut send_buf: Box<[u8]> = vec![
+        0u8;
+        RegisterRequestDataPositions::DATA as usize
+            + network.net_id.len()
+            + public_sock_addr.len()
+    ]
+    .into_boxed_slice();
     send_buf[0] = ServerMethods::REGISTER as u8; // set metod identification byte
-    send_buf[RegisterRequestDataPositions::ENCRYPTED as usize] = match encryption_key {
-        // stor encryption flag byte
-        Some(_) => true as u8,
-        None => false as u8,
-    };
-    send_buf[RegisterRequestDataPositions::ID_LEN as usize] = network_id.len() as u8;
+    send_buf[RegisterRequestDataPositions::ENCRYPTED as usize] = network.encrypted as u8;
+
+    send_buf[RegisterRequestDataPositions::ID_LEN as usize] = network.net_id.len() as u8;
 
     send_buf[RegisterRequestDataPositions::DATA as usize
-        ..RegisterRequestDataPositions::DATA as usize + network_id.len()]
-        .copy_from_slice(network_id.as_bytes()); // store network id
-
-    let mut iv: [u8; SALT_AND_IV_SIZE as usize] = [0; SALT_AND_IV_SIZE as usize];
-    let salt: [u8; SALT_AND_IV_SIZE as usize];
-    match salt_opt {
-        Some(s) => salt = s,
-        None => salt = [0; SALT_AND_IV_SIZE as usize],
-    }
-    match encryption_key {
-        Some(encryption_key) => {
-            let mut rng = rand::rng();
-            rng.fill_bytes(&mut iv);
-            public_sock_addr =
-                shared::crypto::encrypt(&encryption_key, &iv, public_sock_addr.as_slice()).unwrap();
-        }
-        None => {
-            iv = [0; SALT_AND_IV_SIZE as usize];
-        }
-    };
+        ..RegisterRequestDataPositions::DATA as usize + network.net_id.len()]
+        .copy_from_slice(network.net_id.as_bytes()); // store network id
 
     send_buf[RegisterRequestDataPositions::IV as usize
         ..RegisterRequestDataPositions::IV as usize + SALT_AND_IV_SIZE as usize]
         .copy_from_slice(&iv); // copy iv ad salt do the request
     send_buf[RegisterRequestDataPositions::SALT as usize
         ..RegisterRequestDataPositions::SALT as usize + SALT_AND_IV_SIZE as usize]
-        .copy_from_slice(&salt);
+        .copy_from_slice(&network.salt);
 
     send_buf[RegisterRequestDataPositions::SOCKADDR_LEN as usize] = public_sock_addr.len() as u8;
 
-    send_buf[RegisterRequestDataPositions::DATA as usize + network_id.len()
-        ..RegisterRequestDataPositions::DATA as usize + network_id.len() + public_sock_addr.len()]
+    send_buf[RegisterRequestDataPositions::DATA as usize + network.net_id.len()
+        ..RegisterRequestDataPositions::DATA as usize
+            + network.net_id.len()
+            + public_sock_addr.len()]
         .copy_from_slice(&public_sock_addr);
 
     match send_and_recv_with_retry(buf, &send_buf, dst, socket, STANDARD_RETRY_MAX) {
-        Ok((data_lenght, _)) => return Ok(data_lenght),
+        Ok((data_lenght, _)) => return Ok((iv, data_lenght)),
         Err(e) => return Err(e),
     }
 }
 
-fn get_request(
+pub fn get_request(
     buf: &mut [u8; BUFFER_SIZE],
     dst: &SocketAddr,
     socket: UdpSocket,
@@ -290,4 +270,45 @@ fn get_request(
     }
 
     return Ok(types::Network::new(encrypted, key, network_id, salt, peers));
+}
+
+pub fn send_heartbeat(
+    buf: &mut [u8; BUFFER_SIZE],
+    dst: &SocketAddr,
+    socket: UdpSocket,
+    network: &types::Network,
+    my_public_sock_addr: &Box<[u8]>,
+    iv: &[u8; SALT_AND_IV_SIZE as usize],
+) -> Result<usize, ServerErrorResponses> {
+    let mut send_buf: Box<[u8]> = vec![
+        0u8;
+        HeartBeatRequestDataPositions::IV as usize
+            + SALT_AND_IV_SIZE as usize
+            + my_public_sock_addr.len()
+    ]
+    .into_boxed_slice();
+
+    send_buf[0] = ServerMethods::HEARTBEAT as u8;
+    send_buf[HeartBeatRequestDataPositions::ID_LEN as usize] = network.net_id.len() as u8;
+    send_buf[HeartBeatRequestDataPositions::SOCKADDR_LEN as usize] =
+        my_public_sock_addr.len() as u8;
+
+    send_buf[HeartBeatRequestDataPositions::IV as usize
+        ..HeartBeatRequestDataPositions::IV as usize + SALT_AND_IV_SIZE as usize]
+        .copy_from_slice(iv);
+
+    send_buf[HeartBeatRequestDataPositions::DATA as usize
+        ..HeartBeatRequestDataPositions::DATA as usize + network.net_id.len()]
+        .copy_from_slice(network.net_id.as_bytes());
+
+    send_buf[HeartBeatRequestDataPositions::DATA as usize + network.net_id.len()
+        ..HeartBeatRequestDataPositions::DATA as usize
+            + network.net_id.len()
+            + my_public_sock_addr.len()]
+        .copy_from_slice(&my_public_sock_addr);
+
+    match send_and_recv_with_retry(buf, &send_buf, dst, socket, STANDARD_RETRY_MAX) {
+        Ok((data_lenght, _)) => return Ok(data_lenght),
+        Err(e) => return Err(e),
+    }
 }
