@@ -5,14 +5,12 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use super::types;
+use crate::net_utils;
+use crate::types::Peer;
 use colored::Colorize;
 use pea_2_pea::*;
 use rand::{RngCore, rng};
-use tappers::Netmask;
-
-use crate::types::Peer;
-
-use super::types;
 
 // return data_lenght and number of retryes
 pub fn send_and_recv_with_retry(
@@ -22,34 +20,51 @@ pub fn send_and_recv_with_retry(
     socket: &UdpSocket,
     retry_max: usize,
 ) -> Result<(usize, usize), ServerErrorResponses> {
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    net_utils::enable_icmp_errors(socket)?;
+
     let mut retry_count: usize = 0;
+
     loop {
         match socket.send_to(send_buf, dst) {
             Ok(s) => {
                 #[cfg(debug_assertions)]
                 eprintln!("send {} bytes", s);
             }
-            Err(e) => {
-                panic!("Error sending data: {}", e);
-            }
+            Err(e) => match e.kind() {
+                ErrorKind::ConnectionReset
+                | ErrorKind::ConnectionRefused
+                | ErrorKind::NetworkUnreachable
+                | ErrorKind::HostUnreachable => {
+                    return Err(ServerErrorResponses::IO(std::io::Error::new(
+                        e.kind(),
+                        format!("Destination unreachable: {}", e),
+                    )));
+                }
+                _ => return Err(ServerErrorResponses::IO(e)),
+            },
+        }
+
+        #[cfg(target_os = "linux")]
+        if let Err(icmp_error) = net_utils::check_icmp_error_queue(socket) {
+            return Err(ServerErrorResponses::IO(icmp_error));
         }
 
         match socket.recv_from(buf) {
-            Ok((data_lenght, src)) => {
+            Ok((data_length, src)) => {
                 if src != *dst {
                     continue;
                 }
                 match buf[0] {
                     x if x == send_buf[0] as u8 => {
-                        return Ok((data_lenght, retry_count));
+                        return Ok((data_length, retry_count));
                     }
                     x if x == ServerResponse::GENERAL_ERROR as u8 => {
                         return Err(ServerErrorResponses::IO(std::io::Error::new(
                             std::io::ErrorKind::InvalidData,
-                            match std::str::from_utf8(&buf[1..data_lenght]) {
-                                // the firts byte is compensated for sice this is len not index
+                            match std::str::from_utf8(&buf[1..data_length]) {
                                 Ok(s) => s.to_string(),
-                                Err(e) => format!("invalid error string: {}", e).to_string(),
+                                Err(e) => format!("invalid error string: {}", e),
                             },
                         )));
                     }
@@ -65,19 +80,32 @@ pub fn send_and_recv_with_retry(
                 }
             }
             Err(e) if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::TimedOut => {
-                // timedout
+                #[cfg(target_os = "linux")]
+                if let Err(icmp_error) = net_utils::check_icmp_error_queue(socket) {
+                    return Err(ServerErrorResponses::IO(icmp_error));
+                }
+
                 if retry_count >= retry_max {
                     return Err(ServerErrorResponses::IO(std::io::Error::new(
                         ErrorKind::TimedOut,
-                        "max retry count reached without responce",
+                        "Max retry count reached - destination may be unreachable",
                     )));
                 }
                 retry_count += 1;
                 continue;
             }
-            Err(e) => {
-                return Err(ServerErrorResponses::IO(e));
-            }
+            Err(e) => match e.kind() {
+                ErrorKind::ConnectionReset
+                | ErrorKind::ConnectionRefused
+                | ErrorKind::NetworkUnreachable
+                | ErrorKind::HostUnreachable => {
+                    return Err(ServerErrorResponses::IO(std::io::Error::new(
+                        e.kind(),
+                        format!("Destination unreachable during receive: {}", e),
+                    )));
+                }
+                _ => return Err(ServerErrorResponses::IO(e)),
+            },
         }
     }
 }

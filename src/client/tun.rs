@@ -15,10 +15,11 @@ pub fn create_tun_interface(
     let mut broadcast_addr_oct = private_ip.octets();
     broadcast_addr_oct[3] = 255;
     addr_req.set_broadcast(std::net::Ipv4Addr::from(broadcast_addr_oct));
-    tun_iface.add_addr(private_ip)?;
+    tun_iface.add_addr(addr_req)?;
     tun_iface.set_up()?;
     return Ok(tun_iface);
 }
+
 
 pub async fn read_tun_iface(
     tun_iface: Arc<tappers::Tun>,

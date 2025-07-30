@@ -1,5 +1,4 @@
-use std::io::ErrorKind;
-use std::net::{SocketAddr, UdpSocket};
+use std::net::UdpSocket;
 
 #[cfg(target_os = "windows")]
 use std::os::windows::io::AsRawSocket;
@@ -14,7 +13,7 @@ use winapi::um::winsock2::{SOCKET_ERROR, WSAIoctl};
 use std::os::unix::io::AsRawFd;
 
 #[cfg(target_os = "windows")]
-fn enable_icmp_errors(socket: &UdpSocket) -> std::io::Result<()> {
+pub fn enable_icmp_errors(socket: &UdpSocket) -> std::io::Result<()> {
     let socket_handle = socket.as_raw_socket();
     let mut bytes_returned: DWORD = 0;
     let enable: BOOL = FALSE;
@@ -41,7 +40,7 @@ fn enable_icmp_errors(socket: &UdpSocket) -> std::io::Result<()> {
 }
 
 #[cfg(target_os = "linux")]
-fn enable_icmp_errors(socket: &UdpSocket) -> std::io::Result<()> {
+pub fn enable_icmp_errors(socket: &UdpSocket) -> std::io::Result<()> {
     let fd = socket.as_raw_fd();
     let optval: libc::c_int = 1;
 
@@ -63,7 +62,7 @@ fn enable_icmp_errors(socket: &UdpSocket) -> std::io::Result<()> {
 }
 
 #[cfg(target_os = "linux")]
-fn check_icmp_error_queue(socket: &UdpSocket) -> std::io::Result<()> {
+pub fn check_icmp_error_queue(socket: &UdpSocket) -> std::io::Result<()> {
     use libc::{MSG_ERRQUEUE, iovec, msghdr, recvmsg};
 
     let fd = socket.as_raw_fd();

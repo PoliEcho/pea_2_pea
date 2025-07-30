@@ -1,5 +1,5 @@
-mod config;
 mod net;
+mod net_utils;
 mod tun;
 mod types;
 use colored::Colorize;
@@ -259,6 +259,10 @@ fn main() -> std::io::Result<()> {
         },
     );
 
+    // timeout is no longer needed
+    #[cfg(not(feature = "no-timeout"))]
+    socket.set_read_timeout(None)?;
+
     smol::block_on(async {
         smol::spawn(tun::read_tun_iface(
             tun_iface.clone(),
@@ -281,12 +285,12 @@ fn main() -> std::io::Result<()> {
                     .detach();
                 }
                 Err(e) => {
-                    eprint!(
-                        "{} failed to read from socket Error: {}",
-                        "[ERROR]".red(),
-                        e
+                    eprintln!(
+                        "{} failed to read from socket Error: {}\n{}",
+                        "[WARNING]".red(),
+                        e,
+                        "Retrying".bright_yellow()
                     );
-                    exit(5); //EIO
                 }
             }
         }
