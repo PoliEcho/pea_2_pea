@@ -1,3 +1,4 @@
+mod config;
 mod net;
 mod tun;
 mod types;
@@ -52,14 +53,15 @@ fn main() -> std::io::Result<()> {
     }
     let mut buf: [u8; UDP_BUFFER_SIZE] = [0; UDP_BUFFER_SIZE];
     let (socket, virtual_network, my_public_sock_addr) = {
-        let socket: UdpSocket = (|| -> std::io::Result<UdpSocket> {
+        let socket: Arc<UdpSocket> = Arc::new(|| -> std::io::Result<UdpSocket> {
             match UdpSocket::bind("0.0.0.0:0") {
                 // bind to OS assigned random port
                 Ok(socket) => return Ok(socket),
                 Err(e) => Err(e), // exit on error
             }
         })()
-        .expect("Failed to bind to any available port");
+        .expect("Failed to bind to any available port")
+        .into();
 
         #[cfg(not(feature = "no-timeout"))]
         socket.set_read_timeout(Some(Duration::new(10, 0)))?; // set timeout to 10 seconds
@@ -178,7 +180,7 @@ fn main() -> std::io::Result<()> {
         let mut ips_used: [bool; u8::MAX as usize + 1] = [false; u8::MAX as usize + 1];
         ips_used[0] = true; // ignore net addr
         ips_used[u8::MAX as usize] = true; // ignore broadcast
-        eprintln!(
+        println!(
             "{} reaching to other peers to obtain ip address",
             "[LOG]".blue()
         );
@@ -243,17 +245,52 @@ fn main() -> std::io::Result<()> {
             });
     }
 
-    let tun_iface = match tun::create_tun_interface(virtual_network.read().unwrap().private_ip) {
-        Ok(t) => t,
-        Err(e) => {
-            eprintln!(
-                "{} failed to create Tun interface, Error: {}, are you running as root?",
-                "[CRITICAL]".red().bold(),
-                e
-            );
-            return Err(e);
+    let tun_iface = Arc::new(
+        match tun::create_tun_interface(virtual_network.read().unwrap().private_ip) {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!(
+                    "{} failed to create Tun interface, Error: {}, are you running as root?",
+                    "[CRITICAL]".red().bold(),
+                    e
+                );
+                return Err(e);
+            }
+        },
+    );
+
+    smol::block_on(async {
+        smol::spawn(tun::read_tun_iface(
+            tun_iface.clone(),
+            socket.clone(),
+            virtual_network.clone(),
+        ))
+        .detach();
+
+        loop {
+            buf.fill(0);
+            match socket.recv_from(&mut buf) {
+                Ok((data_lenght, src)) => {
+                    smol::spawn(net::handle_incoming_connection(
+                        buf,
+                        src,
+                        virtual_network.clone(),
+                        tun_iface.clone(),
+                        data_lenght,
+                    ))
+                    .detach();
+                }
+                Err(e) => {
+                    eprint!(
+                        "{} failed to read from socket Error: {}",
+                        "[ERROR]".red(),
+                        e
+                    );
+                    exit(5); //EIO
+                }
+            }
         }
-    };
+    });
 
     Ok(())
 }

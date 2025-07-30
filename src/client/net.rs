@@ -5,6 +5,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use colored::Colorize;
 use pea_2_pea::*;
 use rand::{RngCore, rng};
 use tappers::Netmask;
@@ -477,5 +478,133 @@ pub fn P2P_hello(
     match send_and_recv_with_retry(buf, &send_buf, dst, socket, STANDARD_RETRY_MAX) {
         Ok((data_lenght, _)) => return Ok(data_lenght),
         Err(e) => return Err(e),
+    }
+}
+
+pub async fn handle_incoming_connection(
+    buf: [u8; UDP_BUFFER_SIZE],
+    src: SocketAddr,
+    network: Arc<RwLock<types::Network>>,
+    tun_iface: Arc<tappers::Tun>,
+    data_lenght: usize,
+) {
+    match buf[0] {
+        x if x == P2PMethods::PACKET as u8 => {
+            #[cfg(debug_assertions)]
+            println!("PACKET from difernt peer receved");
+
+            if network.read().unwrap().encrypted {
+                match shared::crypto::decrypt(
+                    &network.read().unwrap().key,
+                    &buf[P2PStandardDataPositions::IV as usize
+                        ..P2PStandardDataPositions::IV as usize + SALT_AND_IV_SIZE],
+                    &buf[P2PStandardDataPositions::DATA as usize..data_lenght as usize-1 /*compensate for size and index diference*/],
+                ) {
+                    Ok(data) => match tun_iface.send(&data) {
+                        Ok(_) => {}
+                        Err(e) => eprintln!(
+                            "{} failed to write packet to tun interface, Error: {}",
+                            "[WARNING]".yellow(),
+                            e
+                        ),
+                    },
+                    Err(e) => eprintln!(
+                        "{} failed to decrypt packet, Error: {}",
+                        "[WARNING]".yellow(),
+                        e
+                    ),
+                }
+            } else {
+                match tun_iface.send(&buf[P2PStandardDataPositions::DATA as usize..data_lenght as usize-1 /*compensate for size and index diference*/]) {
+                    Ok(_) => {},
+                    Err(e) => eprintln!("{} failed to write packet to tun interface, Error: {}", "[WARNING]".yellow(), e),
+                };
+            }
+        }
+        x if x == P2PMethods::PEER_HELLO as u8 => {
+            println!("{} peer hello receved from: {}", "[LOG]".blue(), src);
+
+            let tmp_data: Vec<u8>;
+            {
+                let mut network_write_lock = network.write().unwrap();
+                let key: [u8; 32] = network_write_lock.key;
+                let encrypted: bool = network_write_lock.encrypted;
+                network_write_lock.peers.push(Peer::new(
+                src,
+                Some(
+                    match std::net::Ipv4Addr::from_str(
+                        match std::str::from_utf8(if encrypted {
+                            match shared::crypto::decrypt(&key, &buf[P2PStandardDataPositions::IV as usize
+                        ..P2PStandardDataPositions::IV as usize + SALT_AND_IV_SIZE], &buf[P2PStandardDataPositions::DATA as usize..data_lenght as usize-1 /*compensate for size and index diference*/]) {
+                                Ok(data) => {tmp_data = data; &tmp_data},
+                                Err(e) => {
+                                eprintln!(
+                                    "{} failed to decrypt ip from peer, ignoring it Error: {}",
+                                    "[WARNING]".yellow(),
+                                    e
+                                );
+                                return;
+                            },
+                            }
+                        } else {
+                            &buf[P2PStandardDataPositions::DATA as usize..data_lenght as usize-1 /*compensate for size and index diference*/]
+                        }) {
+                            Ok(s) => s,
+                            Err(e) => {
+                                eprintln!(
+                                    "{} failed to parse ip from peer, ignoring it Error: {}",
+                                    "[WARNING]".yellow(),
+                                    e
+                                );
+                                return;
+                            }
+                        },
+                    ) {
+                        Ok(ip) => ip,
+                        Err(e) => {
+                            eprintln!(
+                                "{} failed to parse ip from peer, ignoring it Error: {}",
+                                "[WARNING]".yellow(),
+                                e
+                            );
+                            return;
+                        }
+                    },
+                ),
+            ));
+            }
+        }
+        x if x == P2PMethods::PEER_GOODBYE as u8 => {
+            println!("{} peer goodbye receved from: {}", "[LOG]".blue(), src);
+
+            let mut network_lock = network.write().unwrap();
+
+            let key = network_lock.key;
+            let encrypted: bool = network_lock.encrypted;
+
+            let mut data_tmp: Vec<u8> = Vec::with_capacity(SALT_AND_IV_SIZE); // block size
+
+            network_lock.peers.retain(|peer| !{peer.private_ip == match std::net::Ipv4Addr::from_str(match std::str::from_utf8( if encrypted {
+                match shared::crypto::decrypt(&key, &buf[P2PStandardDataPositions::IV as usize..P2PStandardDataPositions::IV as usize + SALT_AND_IV_SIZE], &buf[P2PStandardDataPositions::DATA as usize..data_lenght as usize-1 /*compensate for size and index diference*/]) {
+                    Ok(data) => {data_tmp = data;
+                                             &data_tmp},
+                    Err(e) => {eprintln!("{} error parsing ip, Error: {}", "[ERROR]".red(), e); return false;},
+                }
+            } else {&buf[P2PStandardDataPositions::DATA as usize..data_lenght as usize-1 /*compensate for size and index diference*/]}) {
+                    Ok(s) => s,
+                    Err(e) => {eprintln!("{} error parsing ip, Error: {}", "[ERROR]".red(), e); return false;},
+                }) {
+                    Ok(ip) => ip,
+                    Err(e) => {eprintln!("{} error parsing ip, Error: {}", "[ERROR]".red(), e); return false;},
+                } && peer.sock_addr == src});
+        }
+
+        _ => {
+            eprintln!(
+                "{} unknown method ID: 0x{:02x}, Droping!",
+                "[WARNING]".bright_yellow(),
+                buf[0]
+            )
+        }
     }
 }

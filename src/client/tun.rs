@@ -21,8 +21,8 @@ pub fn create_tun_interface(
 }
 
 pub async fn read_tun_iface(
-    tun_iface: &tappers::Tun,
-    socket: std::net::UdpSocket,
+    tun_iface: Arc<tappers::Tun>,
+    socket: Arc<std::net::UdpSocket>,
     network: Arc<RwLock<Network>>,
 ) {
     let mut buf: [u8; IP_BUFFER_SIZE] = [0u8; IP_BUFFER_SIZE];
@@ -33,7 +33,7 @@ pub async fn read_tun_iface(
             smol::spawn(handle_ip_packet(
                 buf[..data_lenght - 1].to_vec().into(),
                 network.clone(),
-                socket.try_clone().expect("couldn't clone the socket"),
+                socket.clone(),
             ))
             .detach();
         }
@@ -43,7 +43,7 @@ pub async fn read_tun_iface(
 pub async fn handle_ip_packet(
     packet_data: Box<[u8]>,
     network: Arc<RwLock<Network>>,
-    socket: std::net::UdpSocket,
+    socket: Arc<std::net::UdpSocket>,
 ) {
     let dst_ip = std::net::Ipv4Addr::from(
         match <[u8; 4]>::try_from(
