@@ -1,9 +1,17 @@
 mod net;
+mod tun;
 mod types;
+use colored::Colorize;
 use pea_2_pea::*;
 use rand::RngCore;
+use rayon::prelude::*;
 
-use std::{net::UdpSocket, process::exit, time::Duration};
+use std::{
+    net::UdpSocket,
+    process::exit,
+    sync::{Arc, RwLock},
+    time::Duration,
+};
 
 use crate::types::Network;
 
@@ -42,7 +50,8 @@ fn main() -> std::io::Result<()> {
         eprintln!("network id cannot have more then 255 charactes");
         exit(7); // posix for E2BIG
     }
-    {
+    let mut buf: [u8; UDP_BUFFER_SIZE] = [0; UDP_BUFFER_SIZE];
+    let (socket, virtual_network, my_public_sock_addr) = {
         let socket: UdpSocket = (|| -> std::io::Result<UdpSocket> {
             match UdpSocket::bind("0.0.0.0:0") {
                 // bind to OS assigned random port
@@ -67,7 +76,6 @@ fn main() -> std::io::Result<()> {
             .parse()
             .unwrap();
 
-        let mut buf: [u8; BUFFER_SIZE] = [0; BUFFER_SIZE];
         // query here
         let public_sock_addr_raw: String =
             match net::query_request(&mut buf, &server_SocketAddr, &socket) {
@@ -77,7 +85,7 @@ fn main() -> std::io::Result<()> {
 
         let mut salt: [u8; SALT_AND_IV_SIZE] = [0u8; SALT_AND_IV_SIZE];
         let mut iv: [u8; SALT_AND_IV_SIZE] = [0u8; SALT_AND_IV_SIZE];
-        let (public_sock_addr, encryption_key) = match cli.password {
+        let (mut public_sock_addr, encryption_key) = match cli.password {
             Some(ref p) => {
                 let mut rng = rand::rng();
                 rng.fill_bytes(&mut salt);
@@ -104,7 +112,7 @@ fn main() -> std::io::Result<()> {
             ),
         };
 
-        let virtual_network: Network = {
+        let virtual_network: Arc<RwLock<Network>> = RwLock::new({
             match net::get_request(
                 &mut buf,
                 &server_SocketAddr,
@@ -114,14 +122,16 @@ fn main() -> std::io::Result<()> {
             ) {
                 Ok(n) => {
                     eprintln!("Network exists joining it");
+                    public_sock_addr =
+                        shared::crypto::encrypt(&n.key, &iv, public_sock_addr_raw.as_bytes())
+                            .unwrap()
+                            .into_boxed_slice();
                     let _ = net::send_heartbeat(
                         &mut buf,
                         &server_SocketAddr,
                         &socket,
                         &n,
-                        &shared::crypto::encrypt(&n.key, &iv, public_sock_addr_raw.as_bytes())
-                            .unwrap()
-                            .into_boxed_slice(),
+                        &public_sock_addr,
                         &iv,
                     );
                     n
@@ -154,7 +164,96 @@ fn main() -> std::io::Result<()> {
                     exit(5); //EIO
                 }
             }
-        };
+        })
+        .into();
+        (
+            socket,
+            virtual_network,
+            types::EncryptablePulicSockAddr::new(iv, public_sock_addr),
+        )
+    };
+
+    {
+        // all loops here will be auto skiped if there are no peers yet
+        let mut ips_used: [bool; u8::MAX as usize + 1] = [false; u8::MAX as usize + 1];
+        ips_used[0] = true; // ignore net addr
+        ips_used[u8::MAX as usize] = true; // ignore broadcast
+        eprintln!(
+            "{} reaching to other peers to obtain ip address",
+            "[LOG]".blue()
+        );
+        virtual_network
+            .write()
+            .unwrap()
+            .peers
+            .iter_mut()
+            .for_each(|peer| {
+                match net::P2P_query(&mut buf, &peer.sock_addr, &socket, virtual_network.clone()) {
+                    Ok(ip) => {
+                        ips_used[ip.octets()[3] as usize] = true;
+                        peer.private_ip = ip;
+                    }
+                    Err(e) => eprintln!(
+                        "{} while getting ip from peer: {}, Error: {}",
+                        "[ERROR]".red(),
+                        peer.sock_addr,
+                        e
+                    ),
+                };
+            });
+
+        virtual_network.write().unwrap().private_ip = std::net::Ipv4Addr::new(
+            DEFAULT_NETWORK_PREFIX[0],
+            DEFAULT_NETWORK_PREFIX[1],
+            DEFAULT_NETWORK_PREFIX[2],
+            ips_used.par_iter().position_first(|&b| !b).unwrap() as u8,
+        ); // find first element that is false
+
+        virtual_network
+            .write()
+            .unwrap()
+            .peers
+            .retain(|peer| peer.private_ip != std::net::Ipv4Addr::UNSPECIFIED); // remove all peers without ip
+
+        virtual_network
+            .read()
+            .unwrap()
+            .peers
+            .iter()
+            .for_each(|peer| {
+                match net::P2P_hello(
+                    &mut buf,
+                    &peer.sock_addr,
+                    &socket,
+                    virtual_network.read().unwrap().private_ip,
+                    virtual_network.clone(),
+                ) {
+                    Ok(_) => eprintln!(
+                        "{} registered with peer: {}",
+                        "[SUCCESS]".green(),
+                        peer.sock_addr
+                    ),
+                    Err(e) => eprintln!(
+                        "{} failed to register with peer: {}, Error: {}",
+                        "[ERROR]".red(),
+                        peer.sock_addr,
+                        e
+                    ),
+                }
+            });
     }
+
+    let tun_iface = match tun::create_tun_interface(virtual_network.read().unwrap().private_ip) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!(
+                "{} failed to create Tun interface, Error: {}, are you running as root?",
+                "[CRITICAL]".red().bold(),
+                e
+            );
+            return Err(e);
+        }
+    };
+
     Ok(())
 }

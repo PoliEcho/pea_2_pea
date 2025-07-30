@@ -1,16 +1,21 @@
 use std::{
     io::ErrorKind,
-    net::{SocketAddr, UdpSocket},
+    net::{Ipv4Addr, SocketAddr, UdpSocket},
     str::FromStr,
+    sync::{Arc, RwLock},
 };
 
 use pea_2_pea::*;
+use rand::{RngCore, rng};
+use tappers::Netmask;
+
+use crate::types::Peer;
 
 use super::types;
 
 // return data_lenght and number of retryes
 pub fn send_and_recv_with_retry(
-    buf: &mut [u8; BUFFER_SIZE],
+    buf: &mut [u8; UDP_BUFFER_SIZE],
     send_buf: &[u8],
     dst: &SocketAddr,
     socket: &UdpSocket,
@@ -77,7 +82,7 @@ pub fn send_and_recv_with_retry(
 }
 
 pub fn query_request(
-    buf: &mut [u8; BUFFER_SIZE],
+    buf: &mut [u8; UDP_BUFFER_SIZE],
     dst: &SocketAddr,
     socket: &UdpSocket,
 ) -> Result<String, ServerErrorResponses> {
@@ -104,7 +109,7 @@ pub fn query_request(
 }
 
 pub fn register_request(
-    buf: &mut [u8; BUFFER_SIZE],
+    buf: &mut [u8; UDP_BUFFER_SIZE],
     dst: &SocketAddr,
     socket: &UdpSocket,
     network: &types::Network,
@@ -167,7 +172,7 @@ pub fn register_request(
 }
 
 pub fn get_request(
-    buf: &mut [u8; BUFFER_SIZE],
+    buf: &mut [u8; UDP_BUFFER_SIZE],
     dst: &SocketAddr,
     socket: &UdpSocket,
     network_id: &String,
@@ -214,7 +219,7 @@ pub fn get_request(
         .unwrap();
 
     let mut offset: usize = 0;
-    let mut peers: Vec<SocketAddr> = Vec::with_capacity(1); // at least one client
+    let mut peers: Vec<Peer> = Vec::with_capacity(1); // at least one client
 
     let key: [u8; 32] = match password {
         Some(p) => shared::crypto::derive_key_from_password(p.as_bytes(), &salt),
@@ -302,7 +307,7 @@ pub fn get_request(
                 }
             };
 
-            peers.push(peer);
+            peers.push(types::Peer::new(peer, None));
             break;
         }
         offset += SALT_AND_IV_SIZE as usize + sock_addr_len as usize + 1 /*for size byte */;
@@ -319,7 +324,7 @@ pub fn get_request(
 }
 
 pub fn send_heartbeat(
-    buf: &mut [u8; BUFFER_SIZE],
+    buf: &mut [u8; UDP_BUFFER_SIZE],
     dst: &SocketAddr,
     socket: &UdpSocket,
     network: &types::Network,
@@ -365,6 +370,109 @@ pub fn send_heartbeat(
             .map(|x| format!("{:02X} ", x))
             .collect::<String>(),
     );
+
+    match send_and_recv_with_retry(buf, &send_buf, dst, socket, STANDARD_RETRY_MAX) {
+        Ok((data_lenght, _)) => return Ok(data_lenght),
+        Err(e) => return Err(e),
+    }
+}
+
+#[allow(non_snake_case)]
+pub fn P2P_query(
+    buf: &mut [u8; UDP_BUFFER_SIZE],
+    dst: &SocketAddr,
+    socket: &UdpSocket,
+    network: Arc<std::sync::RwLock<types::Network>>,
+) -> Result<std::net::Ipv4Addr, Box<dyn std::error::Error>> {
+    #[cfg(debug_assertions)]
+    println!("P2P QUERY method");
+
+    let (data_lenght, _) = send_and_recv_with_retry(
+        buf,
+        &[P2PMethods::PEER_QUERY as u8],
+        dst,
+        socket,
+        STANDARD_RETRY_MAX,
+    )?;
+
+    let iv: [u8; SALT_AND_IV_SIZE] = buf[P2PStandardDataPositions::IV as usize
+        ..P2PStandardDataPositions::IV as usize + SALT_AND_IV_SIZE]
+        .try_into()
+        .expect("this should never happen");
+
+    let tmp_decrypted: Vec<u8>;
+
+    return Ok(std::net::Ipv4Addr::from_str(
+        if network.read().unwrap().encrypted {
+            match shared::crypto::decrypt(
+                &network.read().unwrap().key,
+                &iv,
+                &buf[P2PStandardDataPositions::DATA as usize..data_lenght - 1],
+            ) {
+                Ok(decrypted) => {
+                    tmp_decrypted = decrypted;
+                    match std::str::from_utf8(&tmp_decrypted) {
+                        Ok(s) => s,
+                        Err(e) => return Err(Box::new(e)),
+                    }
+                }
+                Err(e) => {
+                    return Err(Box::new(ServerErrorResponses::GENERAL_ERROR(format!(
+                        "{}",
+                        e
+                    ))));
+                }
+            }
+        } else {
+            match std::str::from_utf8(
+                &buf[P2PStandardDataPositions::DATA as usize..data_lenght - 1],
+            ) {
+                Ok(s) => s,
+                Err(e) => return Err(Box::new(e)),
+            }
+        },
+    )?);
+}
+
+#[allow(non_snake_case)]
+pub fn P2P_hello(
+    buf: &mut [u8; UDP_BUFFER_SIZE],
+    dst: &SocketAddr,
+    socket: &UdpSocket,
+    private_ip: Ipv4Addr,
+    network: Arc<RwLock<types::Network>>,
+) -> Result<usize, ServerErrorResponses> {
+    let private_ip_str = private_ip.to_string();
+    let (private_ip_final, iv) = if network.read().unwrap().encrypted {
+        let mut rng = rng();
+        let mut iv: [u8; SALT_AND_IV_SIZE] = [0u8; SALT_AND_IV_SIZE];
+        rng.fill_bytes(&mut iv);
+        (
+            shared::crypto::encrypt(
+                &network.read().unwrap().key,
+                &iv,
+                &private_ip_str.as_bytes(),
+            )
+            .unwrap()
+            .into_boxed_slice(),
+            iv,
+        )
+    } else {
+        (
+            private_ip_str.as_bytes().to_vec().into_boxed_slice(),
+            [0u8; SALT_AND_IV_SIZE],
+        )
+    };
+
+    let mut send_buf: Box<[u8]> =
+        vec![0u8; 1 + P2PStandardDataPositions::DATA as usize + private_ip_final.len()].into();
+
+    send_buf[0] = P2PMethods::PEER_HELLO as u8;
+    send_buf[P2PStandardDataPositions::IV as usize
+        ..P2PStandardDataPositions::IV as usize + SALT_AND_IV_SIZE]
+        .copy_from_slice(&iv);
+
+    send_buf[P2PStandardDataPositions::DATA as usize..].copy_from_slice(&private_ip_final);
 
     match send_and_recv_with_retry(buf, &send_buf, dst, socket, STANDARD_RETRY_MAX) {
         Ok((data_lenght, _)) => return Ok(data_lenght),

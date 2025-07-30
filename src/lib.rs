@@ -1,11 +1,17 @@
 use core::fmt;
 
 pub const SERVER_PORT: u16 = 3543;
-pub const BUFFER_SIZE: usize = 65535;
+pub const UDP_BUFFER_SIZE: usize = 65527;
+pub const IP_BUFFER_SIZE: usize = 65535;
 pub const DEFAULT_TIMEOUT: u64 = 30;
 pub const VERSION: &str = "v0.1";
 pub const SALT_AND_IV_SIZE: usize = 16;
 pub const STANDARD_RETRY_MAX: usize = 10;
+
+pub const DEST_IN_IPV4_OFFSET: usize = 16;
+pub const IPV4_SIZE: usize = 4;
+
+pub const DEFAULT_NETWORK_PREFIX: [u8; 3] = [172, 22, 44];
 
 #[repr(u8)]
 pub enum ServerMethods {
@@ -104,6 +110,21 @@ pub enum HeartBeatRequestDataPositions {
     SOCKADDR_LEN = 2,
     IV = 3,
     DATA = (HeartBeatRequestDataPositions::IV as usize + SALT_AND_IV_SIZE as usize) as usize, // first ID than sockaddr
+}
+
+#[allow(non_camel_case_types)]
+#[repr(u8)]
+pub enum P2PMethods {
+    PEER_QUERY = 20,   // responds with its private ip
+    PEER_HELLO = 21,   // sends private ip encrypted if on
+    PEER_GOODBYE = 22, // sends private ip encrypted if on
+    PACKET = 23,       // sends IP packet encrypted if on
+}
+#[repr(usize)]
+pub enum P2PStandardDataPositions {
+    // sould apply to all P2P Methods
+    IV = 1,
+    DATA = P2PStandardDataPositions::IV as usize + SALT_AND_IV_SIZE,
 }
 
 pub mod shared;

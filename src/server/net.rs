@@ -9,7 +9,7 @@ use rayon::prelude::*;
 use std::sync::Arc;
 use std::u8;
 pub async fn handle_request(
-    buf: [u8; BUFFER_SIZE],
+    buf: [u8; UDP_BUFFER_SIZE],
     socket: std::sync::Arc<std::net::UdpSocket>,
     src: core::net::SocketAddr,
     data_len: usize,
@@ -115,7 +115,7 @@ pub async fn handle_request(
                 send_vec.extend_from_slice(&client.client_sock_addr);
             });
 
-            if send_vec.len() > BUFFER_SIZE {
+            if send_vec.len() > UDP_BUFFER_SIZE {
                 send_general_error_to_client(
                     src,
                     std::io::Error::new(
@@ -327,7 +327,7 @@ pub async fn handle_request(
                 Some(reg) => {
                     let current_time = chrono::Utc::now().timestamp();
                     reg.update(|r| {r.last_heart_beat = current_time;
-                    match r.clients.par_iter_mut().find_first(|c| *c.client_sock_addr == *sock_addr && c.iv == iv) {
+                    match r.clients.par_iter_mut().find_any(|c| *c.client_sock_addr == *sock_addr && c.iv == iv) {
                         Some(c) => c.last_heart_beat = current_time,
                         None => {// add new client if it isn't found
                             r.clients.push(types::Client::new(sock_addr.clone(), current_time, iv));

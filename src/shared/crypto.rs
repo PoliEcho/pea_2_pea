@@ -36,6 +36,7 @@ pub fn decrypt(
     }
 }
 
+#[cfg(debug_assertions)]
 pub fn test_all_crypto_functions() {
     // Test data
     let password = b"test_password_123";
