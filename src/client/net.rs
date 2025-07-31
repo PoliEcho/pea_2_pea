@@ -618,6 +618,18 @@ pub async fn handle_incoming_connection(
                 "{} Notified about new client, creating NAT mapping",
                 "[LOG]".blue()
             );
+
+            #[cfg(debug_assertions)]
+                eprintln!(
+            "registering network:\niv: {}\nsockaddr: {}",
+            &buf[P2PStandardDataPositions::IV as usize
+                            ..P2PStandardDataPositions::IV as usize + BLOCK_SIZE].iter().map(|x| format!("{:02X} ", x)).collect::<String>(),
+        &buf[P2PStandardDataPositions::DATA as usize..]
+            .iter()
+            .map(|x| format!("{:02X} ", x))
+            .collect::<String>(),
+    );
+
             let data_tmp: Box<[u8]>;
             let peer_addr: std::net::SocketAddr = match std::net::SocketAddr::from_str(
                 match std::str::from_utf8(if network.read().unwrap().encrypted {
