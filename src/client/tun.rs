@@ -8,8 +8,11 @@ use crate::types::Network;
 
 pub fn create_tun_interface(
     private_ip: std::net::Ipv4Addr,
+    if_name: Option<String>,
 ) -> Result<tappers::Tun, std::io::Error> {
-    let mut tun_iface: tappers::Tun = tappers::Tun::new_named(tappers::Interface::new("pea0")?)?;
+    let mut tun_iface: tappers::Tun = tappers::Tun::new_named(tappers::Interface::new(
+        if_name.unwrap_or("pea0".to_owned()),
+    )?)?;
     let mut addr_req = tappers::AddAddressV4::new(private_ip);
     addr_req.set_netmask(24);
     let mut broadcast_addr_oct = private_ip.octets();
@@ -19,7 +22,6 @@ pub fn create_tun_interface(
     tun_iface.set_up()?;
     return Ok(tun_iface);
 }
-
 
 pub async fn read_tun_iface(
     tun_iface: Arc<tappers::Tun>,
@@ -59,7 +61,7 @@ pub async fn handle_ip_packet(
     );
     let mut rng = rand::rng();
 
-    let mut iv: [u8; SALT_AND_IV_SIZE] = [0u8; SALT_AND_IV_SIZE];
+    let mut iv: [u8; BLOCK_SIZE] = [0u8; BLOCK_SIZE];
     rng.fill_bytes(&mut iv);
 
     let mut encrypted_data =

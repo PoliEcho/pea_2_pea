@@ -77,7 +77,7 @@ pub async fn handle_request(
             .cloned();
             let mut send_vec: Vec<u8> = Vec::with_capacity(
                 1/*initial status byte */ +
-                GetResponseDataPositions::SALT as usize + /*2 times one for SALT and other for first IV*/ 2*SALT_AND_IV_SIZE as usize + 20, /*magic number guess for how long is encrypted residencial ipv4 with port long */
+                GetResponseDataPositions::SALT as usize + /*2 times one for SALT and other for first IV*/ 2*BLOCK_SIZE as usize + 20, /*magic number guess for how long is encrypted residencial ipv4 with port long */
             ); // use vector to handle many clients
 
             send_vec.push(ServerMethods::GET as u8); // this means success
@@ -191,21 +191,21 @@ pub async fn handle_request(
                 None => {}
             }
 
-            let salt: Option<[u8; SALT_AND_IV_SIZE as usize]>;
-            let iv: Option<[u8; SALT_AND_IV_SIZE as usize]>;
+            let salt: Option<[u8; BLOCK_SIZE as usize]>;
+            let iv: Option<[u8; BLOCK_SIZE as usize]>;
 
             if encrypted {
                 salt = Some(
                     buf[(RegisterRequestDataPositions::SALT as usize)
                         ..(RegisterRequestDataPositions::SALT as usize)
-                            + (SALT_AND_IV_SIZE as usize)]
+                            + (BLOCK_SIZE as usize)]
                         .try_into()
                         .expect("this should never happen"),
                 );
                 iv = Some(
                     buf[(RegisterRequestDataPositions::IV as usize)
                         ..(RegisterRequestDataPositions::IV as usize)
-                            + (SALT_AND_IV_SIZE as usize)]
+                            + (BLOCK_SIZE as usize)]
                         .try_into()
                         .expect("this should never happen"),
                 )
@@ -297,9 +297,9 @@ pub async fn handle_request(
                 }
             };
 
-            let iv: [u8; SALT_AND_IV_SIZE as usize] =
+            let iv: [u8; BLOCK_SIZE as usize] =
                 buf[HeartBeatRequestDataPositions::IV as usize
-                    ..HeartBeatRequestDataPositions::IV as usize + SALT_AND_IV_SIZE as usize]
+                    ..HeartBeatRequestDataPositions::IV as usize + BLOCK_SIZE as usize]
                     .try_into()
                     .unwrap();
 

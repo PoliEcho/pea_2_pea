@@ -5,7 +5,7 @@ pub const UDP_BUFFER_SIZE: usize = 65527;
 pub const IP_BUFFER_SIZE: usize = 65535;
 pub const DEFAULT_TIMEOUT: u64 = 30;
 pub const VERSION: &str = "v0.1";
-pub const SALT_AND_IV_SIZE: usize = 16;
+pub const BLOCK_SIZE: usize = 16;
 pub const STANDARD_RETRY_MAX: usize = 10;
 
 pub const DEST_IN_IPV4_OFFSET: usize = 16;
@@ -82,8 +82,8 @@ pub enum RegisterRequestDataPositions {
     ID_LEN = 2,
     SOCKADDR_LEN = 3,
     SALT = 4,
-    IV = (SALT_AND_IV_SIZE as usize + RegisterRequestDataPositions::SALT as usize) as usize,
-    DATA = (SALT_AND_IV_SIZE as usize + RegisterRequestDataPositions::IV as usize) as usize, // after this there will be id and sockaddr in string or encrypted form after
+    IV = (BLOCK_SIZE as usize + RegisterRequestDataPositions::SALT as usize) as usize,
+    DATA = (BLOCK_SIZE as usize + RegisterRequestDataPositions::IV as usize) as usize, // after this there will be id and sockaddr in string or encrypted form after
 }
 
 #[allow(non_camel_case_types)]
@@ -99,7 +99,7 @@ pub enum GetResponseDataPositions {
     NUM_OF_CLIENTS = 2,
     SALT = 3,
     CLIENTS =
-        (SALT_AND_IV_SIZE as usize + RegisterRequestDataPositions::SALT as usize) - 1 as usize,
+        (BLOCK_SIZE as usize + RegisterRequestDataPositions::SALT as usize) - 1 as usize,
     // after this there will be blocks of this sturcture: one byte size of sockaddr than there will be IV that is SALT_AND_IV_SIZE long and after that there will be sockaddr this repeats until the end of packet
 }
 
@@ -109,7 +109,7 @@ pub enum HeartBeatRequestDataPositions {
     ID_LEN = 1,
     SOCKADDR_LEN = 2,
     IV = 3,
-    DATA = (HeartBeatRequestDataPositions::IV as usize + SALT_AND_IV_SIZE as usize) as usize, // first ID than sockaddr
+    DATA = (HeartBeatRequestDataPositions::IV as usize + BLOCK_SIZE as usize) as usize, // first ID than sockaddr
 }
 
 #[allow(non_camel_case_types)]
@@ -124,7 +124,7 @@ pub enum P2PMethods {
 pub enum P2PStandardDataPositions {
     // sould apply to all P2P Methods
     IV = 1,
-    DATA = P2PStandardDataPositions::IV as usize + SALT_AND_IV_SIZE,
+    DATA = P2PStandardDataPositions::IV as usize + BLOCK_SIZE,
 }
 
 pub mod shared;

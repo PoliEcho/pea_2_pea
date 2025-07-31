@@ -27,7 +27,7 @@ pub struct Network {
     #[readonly]
     pub net_id: String,
     #[readonly]
-    pub salt: [u8; SALT_AND_IV_SIZE as usize],
+    pub salt: [u8; BLOCK_SIZE as usize],
     pub peers: Vec<Peer>,
     pub private_ip: std::net::Ipv4Addr,
 }
@@ -37,7 +37,7 @@ impl Network {
         encrypted: bool,
         key: [u8; 32],
         net_id: String,
-        salt: [u8; SALT_AND_IV_SIZE as usize],
+        salt: [u8; BLOCK_SIZE as usize],
         peers: Vec<Peer>,
     ) -> Self {
         Network {
@@ -54,13 +54,13 @@ impl Network {
 #[readonly::make]
 pub struct EncryptablePulicSockAddr {
     #[readonly]
-    pub iv: [u8; SALT_AND_IV_SIZE],
+    pub iv: [u8; BLOCK_SIZE],
     #[readonly]
     pub sock_addr: Box<[u8]>,
 }
 
 impl EncryptablePulicSockAddr {
-    pub fn new(iv: [u8; SALT_AND_IV_SIZE], sock_addr: Box<[u8]>) -> Self {
+    pub fn new(iv: [u8; BLOCK_SIZE], sock_addr: Box<[u8]>) -> Self {
         EncryptablePulicSockAddr { iv, sock_addr }
     }
 }

@@ -38,6 +38,10 @@ struct Cli {
     )]
     password: Option<String>,
 
+    #[arg(short = 'i', long = "interface-name")]
+    #[arg(help = "select tun interface name Default: pea0")]
+    if_name: Option<String>,
+
     #[arg(short = 'v', long = "verbose")]
     verbose: bool,
 
@@ -76,7 +80,10 @@ fn main() -> std::io::Result<()> {
         #[allow(non_snake_case)] // i think this is valid snake case but rustc doesnt think so
         let server_SocketAddr: core::net::SocketAddr = format!("{}:{}", cli.registrar, server_port)
             .parse()
-            .unwrap();
+            .expect(&format!(
+                "{}:{} is invalid sock addr",
+                cli.registrar, server_port
+            ));
 
         // query here
         let public_sock_addr_raw: String =
@@ -85,8 +92,8 @@ fn main() -> std::io::Result<()> {
                 Err(e) => return Err(ServerErrorResponses::into_io_error(e)),
             };
 
-        let mut salt: [u8; SALT_AND_IV_SIZE] = [0u8; SALT_AND_IV_SIZE];
-        let mut iv: [u8; SALT_AND_IV_SIZE] = [0u8; SALT_AND_IV_SIZE];
+        let mut salt: [u8; BLOCK_SIZE] = [0u8; BLOCK_SIZE];
+        let mut iv: [u8; BLOCK_SIZE] = [0u8; BLOCK_SIZE];
         let (mut public_sock_addr, encryption_key) = match cli.password {
             Some(ref p) => {
                 let mut rng = rand::rng();
@@ -246,7 +253,7 @@ fn main() -> std::io::Result<()> {
     }
 
     let tun_iface = Arc::new(
-        match tun::create_tun_interface(virtual_network.read().unwrap().private_ip) {
+        match tun::create_tun_interface(virtual_network.read().unwrap().private_ip, cli.if_name) {
             Ok(t) => t,
             Err(e) => {
                 eprintln!(
@@ -263,23 +270,31 @@ fn main() -> std::io::Result<()> {
     #[cfg(not(feature = "no-timeout"))]
     socket.set_read_timeout(None)?;
 
-    smol::block_on(async {
-        smol::spawn(tun::read_tun_iface(
-            tun_iface.clone(),
-            socket.clone(),
-            virtual_network.clone(),
-        ))
-        .detach();
+    {let tun_iface_clone = tun_iface.clone();
+    let socket_clone = socket.clone();  
+    let virtual_network_clone = virtual_network.clone();
 
+    std::thread::spawn(move || {
+        tun::read_tun_iface(
+            tun_iface_clone,
+            socket_clone,
+        virtual_network_clone,
+    )
+});} // just let me have my thread
+
+    smol::block_on(async {
         loop {
             buf.fill(0);
             match socket.recv_from(&mut buf) {
                 Ok((data_lenght, src)) => {
+                    #[cfg(debug_assertions)]
+                    eprintln!("recived method 0x{:02x} spawning handler", buf[0]);
                     smol::spawn(net::handle_incoming_connection(
                         buf,
                         src,
                         virtual_network.clone(),
                         tun_iface.clone(),
+                        socket.clone(),
                         data_lenght,
                     ))
                     .detach();

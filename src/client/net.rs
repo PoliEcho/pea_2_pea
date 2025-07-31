@@ -9,6 +9,7 @@ use super::types;
 use crate::net_utils;
 use crate::types::Peer;
 use colored::Colorize;
+use libc::socket;
 use pea_2_pea::*;
 use rand::{RngCore, rng};
 
@@ -143,7 +144,7 @@ pub fn register_request(
     socket: &UdpSocket,
     network: &types::Network,
     public_sock_addr: &Box<[u8]>,
-    iv: &[u8; SALT_AND_IV_SIZE as usize],
+    iv: &[u8; BLOCK_SIZE as usize],
 ) -> Result<usize, ServerErrorResponses> {
     #[cfg(debug_assertions)]
     println!("REGISTER method");
@@ -180,10 +181,10 @@ pub fn register_request(
         .copy_from_slice(network.net_id.as_bytes()); // store network id
 
     send_buf[RegisterRequestDataPositions::IV as usize
-        ..RegisterRequestDataPositions::IV as usize + SALT_AND_IV_SIZE as usize]
+        ..RegisterRequestDataPositions::IV as usize + BLOCK_SIZE as usize]
         .copy_from_slice(iv); // copy iv ad salt do the request
     send_buf[RegisterRequestDataPositions::SALT as usize
-        ..RegisterRequestDataPositions::SALT as usize + SALT_AND_IV_SIZE as usize]
+        ..RegisterRequestDataPositions::SALT as usize + BLOCK_SIZE as usize]
         .copy_from_slice(&network.salt);
 
     send_buf[RegisterRequestDataPositions::SOCKADDR_LEN as usize] = public_sock_addr.len() as u8;
@@ -242,8 +243,8 @@ pub fn get_request(
 
     let mut num_of_clients: u8 = buf[GetResponseDataPositions::NUM_OF_CLIENTS as usize];
 
-    let salt: [u8; SALT_AND_IV_SIZE as usize] = buf[GetResponseDataPositions::SALT as usize
-        ..GetResponseDataPositions::SALT as usize + SALT_AND_IV_SIZE as usize]
+    let salt: [u8; BLOCK_SIZE as usize] = buf[GetResponseDataPositions::SALT as usize
+        ..GetResponseDataPositions::SALT as usize + BLOCK_SIZE as usize]
         .try_into()
         .unwrap();
 
@@ -264,13 +265,13 @@ pub fn get_request(
 
     while num_of_clients != 0 {
         let sock_addr_len: u8 = buf[GetResponseDataPositions::CLIENTS as usize + offset];
-        let mut iv: [u8; SALT_AND_IV_SIZE as usize] = [0; SALT_AND_IV_SIZE as usize];
+        let mut iv: [u8; BLOCK_SIZE as usize] = [0; BLOCK_SIZE as usize];
         let sock_addr_raw: Box<[u8]> =
-            buf[GetResponseDataPositions::CLIENTS as usize + 1 + offset + SALT_AND_IV_SIZE as usize
+            buf[GetResponseDataPositions::CLIENTS as usize + 1 + offset + BLOCK_SIZE as usize
                 ..GetResponseDataPositions::CLIENTS as usize
                     + 1
                     + offset
-                    + SALT_AND_IV_SIZE as usize
+                    + BLOCK_SIZE as usize
                     + sock_addr_len as usize]
                 .to_vec()
                 .into_boxed_slice();
@@ -283,7 +284,7 @@ pub fn get_request(
                         ..GetResponseDataPositions::CLIENTS as usize
                             + 1
                             + offset
-                            + SALT_AND_IV_SIZE as usize],
+                            + BLOCK_SIZE as usize],
                 );
                 #[cfg(debug_assertions)]
                 eprintln!(
@@ -339,7 +340,7 @@ pub fn get_request(
             peers.push(types::Peer::new(peer, None));
             break;
         }
-        offset += SALT_AND_IV_SIZE as usize + sock_addr_len as usize + 1 /*for size byte */;
+        offset += BLOCK_SIZE as usize + sock_addr_len as usize + 1 /*for size byte */;
         num_of_clients -= 1;
     }
 
@@ -358,14 +359,14 @@ pub fn send_heartbeat(
     socket: &UdpSocket,
     network: &types::Network,
     my_public_sock_addr: &Box<[u8]>,
-    iv: &[u8; SALT_AND_IV_SIZE as usize],
+    iv: &[u8; BLOCK_SIZE as usize],
 ) -> Result<usize, ServerErrorResponses> {
     #[cfg(debug_assertions)]
     println!("HEARTBEAT method");
     let mut send_buf: Box<[u8]> = vec![
         0u8;
         HeartBeatRequestDataPositions::IV as usize
-            + SALT_AND_IV_SIZE as usize
+            + BLOCK_SIZE as usize
             + my_public_sock_addr.len()
             + network.net_id.len()
     ]
@@ -377,7 +378,7 @@ pub fn send_heartbeat(
         my_public_sock_addr.len() as u8;
 
     send_buf[HeartBeatRequestDataPositions::IV as usize
-        ..HeartBeatRequestDataPositions::IV as usize + SALT_AND_IV_SIZE as usize]
+        ..HeartBeatRequestDataPositions::IV as usize + BLOCK_SIZE as usize]
         .copy_from_slice(iv);
 
     send_buf[HeartBeatRequestDataPositions::DATA as usize
@@ -424,8 +425,8 @@ pub fn P2P_query(
         STANDARD_RETRY_MAX,
     )?;
 
-    let iv: [u8; SALT_AND_IV_SIZE] = buf[P2PStandardDataPositions::IV as usize
-        ..P2PStandardDataPositions::IV as usize + SALT_AND_IV_SIZE]
+    let iv: [u8; BLOCK_SIZE] = buf[P2PStandardDataPositions::IV as usize
+        ..P2PStandardDataPositions::IV as usize + BLOCK_SIZE]
         .try_into()
         .expect("this should never happen");
 
@@ -474,7 +475,7 @@ pub fn P2P_hello(
     let private_ip_str = private_ip.to_string();
     let (private_ip_final, iv) = if network.read().unwrap().encrypted {
         let mut rng = rng();
-        let mut iv: [u8; SALT_AND_IV_SIZE] = [0u8; SALT_AND_IV_SIZE];
+        let mut iv: [u8; BLOCK_SIZE] = [0u8; BLOCK_SIZE];
         rng.fill_bytes(&mut iv);
         (
             shared::crypto::encrypt(
@@ -489,7 +490,7 @@ pub fn P2P_hello(
     } else {
         (
             private_ip_str.as_bytes().to_vec().into_boxed_slice(),
-            [0u8; SALT_AND_IV_SIZE],
+            [0u8; BLOCK_SIZE],
         )
     };
 
@@ -498,7 +499,7 @@ pub fn P2P_hello(
 
     send_buf[0] = P2PMethods::PEER_HELLO as u8;
     send_buf[P2PStandardDataPositions::IV as usize
-        ..P2PStandardDataPositions::IV as usize + SALT_AND_IV_SIZE]
+        ..P2PStandardDataPositions::IV as usize + BLOCK_SIZE]
         .copy_from_slice(&iv);
 
     send_buf[P2PStandardDataPositions::DATA as usize..].copy_from_slice(&private_ip_final);
@@ -514,9 +515,13 @@ pub async fn handle_incoming_connection(
     src: SocketAddr,
     network: Arc<RwLock<types::Network>>,
     tun_iface: Arc<tappers::Tun>,
+    socket: Arc<std::net::UdpSocket>,
     data_lenght: usize,
 ) {
+    #[cfg(debug_assertions)]
+    eprintln!("recived method 0x{:02x}", buf[0]);
     match buf[0] {
+        
         x if x == P2PMethods::PACKET as u8 => {
             #[cfg(debug_assertions)]
             println!("PACKET from difernt peer receved");
@@ -525,7 +530,7 @@ pub async fn handle_incoming_connection(
                 match shared::crypto::decrypt(
                     &network.read().unwrap().key,
                     &buf[P2PStandardDataPositions::IV as usize
-                        ..P2PStandardDataPositions::IV as usize + SALT_AND_IV_SIZE],
+                        ..P2PStandardDataPositions::IV as usize + BLOCK_SIZE],
                     &buf[P2PStandardDataPositions::DATA as usize..data_lenght as usize-1 /*compensate for size and index diference*/],
                 ) {
                     Ok(data) => match tun_iface.send(&data) {
@@ -549,6 +554,36 @@ pub async fn handle_incoming_connection(
                 };
             }
         }
+        x if x == P2PMethods::PEER_QUERY as u8 => {
+            let encrypted = network.read().unwrap().encrypted;
+            let private_ip = network.read().unwrap().private_ip;
+            let private_ip_str = private_ip.to_string();
+            let mut send_buf: Box<[u8]> = if encrypted {
+                vec![0; P2PStandardDataPositions::DATA as usize + 1 + (private_ip_str.len() + (BLOCK_SIZE - (private_ip_str.len() % BLOCK_SIZE)))].into() // calculate lenght of data with block alligment
+            } else {
+                vec![0; P2PStandardDataPositions::DATA as usize + 1 + private_ip_str.len()].into()
+            };
+
+            send_buf[0] = P2PMethods::PEER_QUERY as u8;
+            let mut iv = [0u8; BLOCK_SIZE];
+            if encrypted {
+                let mut rng = rng();
+                rng.fill_bytes(&mut iv);
+
+                send_buf[P2PStandardDataPositions::DATA as usize..P2PStandardDataPositions::DATA as usize + (private_ip_str.len() + (BLOCK_SIZE - (private_ip_str.len() % BLOCK_SIZE)))].copy_from_slice(shared::crypto::encrypt(&network.read().unwrap().key, &iv, private_ip_str.as_bytes()).unwrap().as_slice());
+            } else {
+                send_buf[P2PStandardDataPositions::DATA as usize..P2PStandardDataPositions::DATA as usize + private_ip_str.len()].copy_from_slice(private_ip_str.as_bytes());
+            }
+            match socket.send_to(&send_buf, &src) {
+                Ok(s) => {
+                    #[cfg(debug_assertions)]
+                    eprintln!("send {} bytes", s);
+                }
+                Err(e) => {
+                    eprintln!("Error sending data: {}", e);
+                }
+            }
+        },
         x if x == P2PMethods::PEER_HELLO as u8 => {
             println!("{} peer hello receved from: {}", "[LOG]".blue(), src);
 
@@ -563,7 +598,7 @@ pub async fn handle_incoming_connection(
                     match std::net::Ipv4Addr::from_str(
                         match std::str::from_utf8(if encrypted {
                             match shared::crypto::decrypt(&key, &buf[P2PStandardDataPositions::IV as usize
-                        ..P2PStandardDataPositions::IV as usize + SALT_AND_IV_SIZE], &buf[P2PStandardDataPositions::DATA as usize..data_lenght as usize-1 /*compensate for size and index diference*/]) {
+                        ..P2PStandardDataPositions::IV as usize + BLOCK_SIZE], &buf[P2PStandardDataPositions::DATA as usize..data_lenght as usize-1 /*compensate for size and index diference*/]) {
                                 Ok(data) => {tmp_data = data; &tmp_data},
                                 Err(e) => {
                                 eprintln!(
@@ -601,6 +636,15 @@ pub async fn handle_incoming_connection(
                 ),
             ));
             }
+            match socket.send_to(&[P2PMethods::PEER_HELLO as u8], &src) {
+                Ok(s) => {
+                    #[cfg(debug_assertions)]
+                    eprintln!("send {} bytes", s);
+                }
+                Err(e) => {
+                    eprintln!("Error sending data: {}", e);
+                }
+            }
         }
         x if x == P2PMethods::PEER_GOODBYE as u8 => {
             println!("{} peer goodbye receved from: {}", "[LOG]".blue(), src);
@@ -610,10 +654,10 @@ pub async fn handle_incoming_connection(
             let key = network_lock.key;
             let encrypted: bool = network_lock.encrypted;
 
-            let mut data_tmp: Vec<u8> = Vec::with_capacity(SALT_AND_IV_SIZE); // block size
+            let mut data_tmp: Vec<u8> = Vec::with_capacity(BLOCK_SIZE); // block size
 
             network_lock.peers.retain(|peer| !{peer.private_ip == match std::net::Ipv4Addr::from_str(match std::str::from_utf8( if encrypted {
-                match shared::crypto::decrypt(&key, &buf[P2PStandardDataPositions::IV as usize..P2PStandardDataPositions::IV as usize + SALT_AND_IV_SIZE], &buf[P2PStandardDataPositions::DATA as usize..data_lenght as usize-1 /*compensate for size and index diference*/]) {
+                match shared::crypto::decrypt(&key, &buf[P2PStandardDataPositions::IV as usize..P2PStandardDataPositions::IV as usize + BLOCK_SIZE], &buf[P2PStandardDataPositions::DATA as usize..data_lenght as usize-1 /*compensate for size and index diference*/]) {
                     Ok(data) => {data_tmp = data;
                                              &data_tmp},
                     Err(e) => {eprintln!("{} error parsing ip, Error: {}", "[ERROR]".red(), e); return false;},
@@ -625,6 +669,15 @@ pub async fn handle_incoming_connection(
                     Ok(ip) => ip,
                     Err(e) => {eprintln!("{} error parsing ip, Error: {}", "[ERROR]".red(), e); return false;},
                 } && peer.sock_addr == src});
+                 match socket.send_to(&[P2PMethods::PEER_GOODBYE as u8], &src) {
+                Ok(s) => {
+                    #[cfg(debug_assertions)]
+                    eprintln!("send {} bytes", s);
+                }
+                Err(e) => {
+                    eprintln!("Error sending data: {}", e);
+                }
+            }
         }
 
         _ => {
