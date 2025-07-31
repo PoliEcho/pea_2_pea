@@ -637,7 +637,7 @@ pub async fn handle_incoming_connection(
                         &network.read().unwrap().key,
                         &buf[P2PStandardDataPositions::IV as usize
                             ..P2PStandardDataPositions::IV as usize + BLOCK_SIZE],
-                        &buf[P2PStandardDataPositions::DATA as usize..],
+                                &buf[P2PStandardDataPositions::DATA as usize..data_lenght as usize-1 /*compensate for size and index diference*/],
                     ) {
                         Ok(v) => {
                             data_tmp = v.into_boxed_slice();
