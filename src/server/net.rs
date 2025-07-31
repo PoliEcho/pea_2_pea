@@ -2,6 +2,7 @@ use crate::utils::send_general_error_to_client;
 
 use super::types;
 use super::utils;
+use colored::Colorize;
 use orx_concurrent_vec::ConcurrentVec;
 use pea_2_pea::*;
 use rayon::prelude::*;
@@ -197,15 +198,13 @@ pub async fn handle_request(
             if encrypted {
                 salt = Some(
                     buf[(RegisterRequestDataPositions::SALT as usize)
-                        ..(RegisterRequestDataPositions::SALT as usize)
-                            + (BLOCK_SIZE as usize)]
+                        ..(RegisterRequestDataPositions::SALT as usize) + (BLOCK_SIZE as usize)]
                         .try_into()
                         .expect("this should never happen"),
                 );
                 iv = Some(
                     buf[(RegisterRequestDataPositions::IV as usize)
-                        ..(RegisterRequestDataPositions::IV as usize)
-                            + (BLOCK_SIZE as usize)]
+                        ..(RegisterRequestDataPositions::IV as usize) + (BLOCK_SIZE as usize)]
                         .try_into()
                         .expect("this should never happen"),
                 )
@@ -244,6 +243,7 @@ pub async fn handle_request(
                 chrono::Utc::now().timestamp(),
                 salt,
                 iv,
+                src
             ));
             match socket.send_to(&[ServerMethods::REGISTER as u8], src) {
                 Ok(s) => {
@@ -297,11 +297,10 @@ pub async fn handle_request(
                 }
             };
 
-            let iv: [u8; BLOCK_SIZE as usize] =
-                buf[HeartBeatRequestDataPositions::IV as usize
-                    ..HeartBeatRequestDataPositions::IV as usize + BLOCK_SIZE as usize]
-                    .try_into()
-                    .unwrap();
+            let iv: [u8; BLOCK_SIZE as usize] = buf[HeartBeatRequestDataPositions::IV as usize
+                ..HeartBeatRequestDataPositions::IV as usize + BLOCK_SIZE as usize]
+                .try_into()
+                .unwrap();
 
             let sock_addr: Vec<u8> = buf[HeartBeatRequestDataPositions::DATA as usize
                 + id_len as usize
@@ -330,7 +329,21 @@ pub async fn handle_request(
                     match r.clients.par_iter_mut().find_any(|c| *c.client_sock_addr == *sock_addr && c.iv == iv) {
                         Some(c) => c.last_heart_beat = current_time,
                         None => {// add new client if it isn't found
-                            r.clients.push(types::Client::new(sock_addr.clone(), current_time, iv));
+                            r.clients.par_iter().for_each(|c| {let mut send_buf: Box<[u8]> = vec![0; P2PStandardDataPositions::DATA as usize + sock_addr_len as usize].into();
+                            send_buf[0] = P2PMethods::NEW_CLIENT_NOTIFY as u8;
+                            send_buf[P2PStandardDataPositions::IV as usize..P2PStandardDataPositions::IV as usize+ BLOCK_SIZE].copy_from_slice(&iv);
+                            send_buf[P2PStandardDataPositions::DATA as usize..P2PStandardDataPositions::DATA as usize + sock_addr_len as usize].copy_from_slice(&sock_addr);
+                            let mut resp_buf: [u8; UDP_BUFFER_SIZE] = [0u8; UDP_BUFFER_SIZE];
+                            match  shared::net::send_and_recv_with_retry(&mut resp_buf, &send_buf, &c.src, &socket, STANDARD_RETRY_MAX) {
+                                Ok((data_lenght, _)) => {
+                                    #[cfg(debug_assertions)]
+                                    eprintln!("send {} bytes", data_lenght);
+                                },
+                                Err(e) => eprintln!("{} failed to send data to client Error: {}", "[ERROR]".red(), e),
+                            };
+                        });
+                            
+                            r.clients.push(types::Client::new(sock_addr.clone(), current_time, iv, src));
                         }
                     };
                 });

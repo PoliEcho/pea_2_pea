@@ -14,6 +14,7 @@ pub const IPV4_SIZE: usize = 4;
 pub const DEFAULT_NETWORK_PREFIX: [u8; 3] = [172, 22, 44];
 
 #[repr(u8)]
+#[allow(non_camel_case_types)]
 pub enum ServerMethods {
     QUERY = 0, // return IP and port of the client
     REGISTER = 1,
@@ -98,8 +99,7 @@ pub enum GetResponseDataPositions {
     ENCRYPTED = 1, // this feeld should be 0 if not encrypted
     NUM_OF_CLIENTS = 2,
     SALT = 3,
-    CLIENTS =
-        (BLOCK_SIZE as usize + RegisterRequestDataPositions::SALT as usize) - 1 as usize,
+    CLIENTS = (BLOCK_SIZE as usize + RegisterRequestDataPositions::SALT as usize) - 1 as usize,
     // after this there will be blocks of this sturcture: one byte size of sockaddr than there will be IV that is SALT_AND_IV_SIZE long and after that there will be sockaddr this repeats until the end of packet
 }
 
@@ -119,6 +119,7 @@ pub enum P2PMethods {
     PEER_HELLO = 21,   // sends private ip encrypted if on
     PEER_GOODBYE = 22, // sends private ip encrypted if on
     PACKET = 23,       // sends IP packet encrypted if on
+    NEW_CLIENT_NOTIFY = 24,
 }
 #[repr(usize)]
 pub enum P2PStandardDataPositions {

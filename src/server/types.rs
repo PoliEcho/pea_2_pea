@@ -9,14 +9,22 @@ pub struct Client {
     pub last_heart_beat: i64,
     #[readonly]
     pub iv: [u8; BLOCK_SIZE as usize],
+    #[readonly]
+    pub src: std::net::SocketAddr,
 }
 
 impl Client {
-    pub fn new(client_addr: Vec<u8>, heart_beat: i64, iv: [u8; BLOCK_SIZE as usize]) -> Self {
+    pub fn new(
+        client_addr: Vec<u8>,
+        heart_beat: i64,
+        iv: [u8; BLOCK_SIZE as usize],
+        src: std::net::SocketAddr,
+    ) -> Self {
         Client {
             client_sock_addr: client_addr,
             last_heart_beat: heart_beat,
             iv,
+            src,
         }
     }
 }
@@ -43,6 +51,7 @@ impl Registration {
         heart_beat: i64,
         salt: Option<[u8; BLOCK_SIZE as usize]>,
         iv: Option<[u8; BLOCK_SIZE as usize]>,
+        src: std::net::SocketAddr,
     ) -> Self {
         Registration {
             net_id,
@@ -50,6 +59,7 @@ impl Registration {
                 client_addr,
                 heart_beat,
                 iv.unwrap_or([0; BLOCK_SIZE as usize]),
+                src,
             )],
             encrypted,
             last_heart_beat: heart_beat,

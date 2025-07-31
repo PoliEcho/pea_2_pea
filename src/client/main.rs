@@ -1,5 +1,4 @@
 mod net;
-mod net_utils;
 mod tun;
 mod types;
 use colored::Colorize;
@@ -192,28 +191,23 @@ fn main() -> std::io::Result<()> {
             "[LOG]".blue()
         );
         let mut network_write_lock = virtual_network.write().unwrap(); // avoid deadlock
-        
-        
+
         let encrypted = network_write_lock.encrypted;
         let key = network_write_lock.key;
-        network_write_lock
-            .peers
-            .iter_mut()
-            .for_each(|peer| {
-                match net::P2P_query(&mut buf, &peer.sock_addr, &socket, encrypted,key) {
-                    Ok(ip) => {
-                        ips_used[ip.octets()[3] as usize] = true;
-                        peer.private_ip = ip;
-                    }
-                    Err(e) => eprintln!(
-                        "{} while getting ip from peer: {}, Error: {}",
-                        "[ERROR]".red(),
-                        peer.sock_addr,
-                        e
-                    ),
-                };
-            });
-        
+        network_write_lock.peers.iter_mut().for_each(|peer| {
+            match net::P2P_query(&mut buf, &peer.sock_addr, &socket, encrypted, key) {
+                Ok(ip) => {
+                    ips_used[ip.octets()[3] as usize] = true;
+                    peer.private_ip = ip;
+                }
+                Err(e) => eprintln!(
+                    "{} while getting ip from peer: {}, Error: {}",
+                    "[ERROR]".red(),
+                    peer.sock_addr,
+                    e
+                ),
+            };
+        });
 
         network_write_lock.private_ip = std::net::Ipv4Addr::new(
             DEFAULT_NETWORK_PREFIX[0],
@@ -226,30 +220,28 @@ fn main() -> std::io::Result<()> {
             .peers
             .retain(|peer| peer.private_ip != std::net::Ipv4Addr::UNSPECIFIED); // remove all peers without ip
 
-        network_write_lock
-            .peers
-            .iter()
-            .for_each(|peer| {
-                match net::P2P_hello(
-                    &mut buf,
-                    &peer.sock_addr,
-                    &socket,
-                    network_write_lock.private_ip,
-                    encrypted,key
-                ) {
-                    Ok(_) => eprintln!(
-                        "{} registered with peer: {}",
-                        "[SUCCESS]".green(),
-                        peer.sock_addr
-                    ),
-                    Err(e) => eprintln!(
-                        "{} failed to register with peer: {}, Error: {}",
-                        "[ERROR]".red(),
-                        peer.sock_addr,
-                        e
-                    ),
-                }
-            });
+        network_write_lock.peers.iter().for_each(|peer| {
+            match net::P2P_hello(
+                &mut buf,
+                &peer.sock_addr,
+                &socket,
+                network_write_lock.private_ip,
+                encrypted,
+                key,
+            ) {
+                Ok(_) => eprintln!(
+                    "{} registered with peer: {}",
+                    "[SUCCESS]".green(),
+                    peer.sock_addr
+                ),
+                Err(e) => eprintln!(
+                    "{} failed to register with peer: {}, Error: {}",
+                    "[ERROR]".red(),
+                    peer.sock_addr,
+                    e
+                ),
+            }
+        });
     }
 
     let tun_iface = Arc::new(
@@ -270,17 +262,15 @@ fn main() -> std::io::Result<()> {
     #[cfg(not(feature = "no-timeout"))]
     socket.set_read_timeout(None)?;
 
-    {let tun_iface_clone = tun_iface.clone();
-    let socket_clone = socket.clone();  
-    let virtual_network_clone = virtual_network.clone();
+    {
+        let tun_iface_clone = tun_iface.clone();
+        let socket_clone = socket.clone();
+        let virtual_network_clone = virtual_network.clone();
 
-    std::thread::spawn(move || {
-        tun::read_tun_iface(
-            tun_iface_clone,
-            socket_clone,
-        virtual_network_clone,
-    )
-});} // just let me have my thread
+        std::thread::spawn(move || {
+            tun::read_tun_iface(tun_iface_clone, socket_clone, virtual_network_clone)
+        });
+    } // just let me have my thread
 
     smol::block_on(async {
         loop {

@@ -1,115 +1,13 @@
 use std::{
-    io::ErrorKind,
     net::{Ipv4Addr, SocketAddr, UdpSocket},
     str::FromStr,
     sync::{Arc, RwLock},
 };
 
 use super::types;
-use crate::net_utils;
-use crate::types::Peer;
 use colored::Colorize;
-use libc::socket;
-use pea_2_pea::*;
+use pea_2_pea::{shared::net::send_and_recv_with_retry, *};
 use rand::{RngCore, rng};
-
-// return data_lenght and number of retryes
-pub fn send_and_recv_with_retry(
-    buf: &mut [u8; UDP_BUFFER_SIZE],
-    send_buf: &[u8],
-    dst: &SocketAddr,
-    socket: &UdpSocket,
-    retry_max: usize,
-) -> Result<(usize, usize), ServerErrorResponses> {
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
-    net_utils::enable_icmp_errors(socket)?;
-
-    let mut retry_count: usize = 0;
-
-    loop {
-        match socket.send_to(send_buf, dst) {
-            Ok(s) => {
-                #[cfg(debug_assertions)]
-                eprintln!("send {} bytes", s);
-            }
-            Err(e) => match e.kind() {
-                ErrorKind::ConnectionReset
-                | ErrorKind::ConnectionRefused
-                | ErrorKind::NetworkUnreachable
-                | ErrorKind::HostUnreachable => {
-                    return Err(ServerErrorResponses::IO(std::io::Error::new(
-                        e.kind(),
-                        format!("Destination unreachable: {}", e),
-                    )));
-                }
-                _ => return Err(ServerErrorResponses::IO(e)),
-            },
-        }
-
-        #[cfg(target_os = "linux")]
-        if let Err(icmp_error) = net_utils::check_icmp_error_queue(socket) {
-            return Err(ServerErrorResponses::IO(icmp_error));
-        }
-
-        match socket.recv_from(buf) {
-            Ok((data_length, src)) => {
-                if src != *dst {
-                    continue;
-                }
-                match buf[0] {
-                    x if x == send_buf[0] as u8 => {
-                        return Ok((data_length, retry_count));
-                    }
-                    x if x == ServerResponse::GENERAL_ERROR as u8 => {
-                        return Err(ServerErrorResponses::IO(std::io::Error::new(
-                            std::io::ErrorKind::InvalidData,
-                            match std::str::from_utf8(&buf[1..data_length]) {
-                                Ok(s) => s.to_string(),
-                                Err(e) => format!("invalid error string: {}", e),
-                            },
-                        )));
-                    }
-                    x if x == ServerResponse::ID_DOESNT_EXIST as u8 => {
-                        return Err(ServerErrorResponses::ID_DOESNT_EXIST);
-                    }
-                    x if x == ServerResponse::ID_EXISTS as u8 => {
-                        return Err(ServerErrorResponses::ID_EXISTS);
-                    }
-                    _ => {
-                        continue;
-                    }
-                }
-            }
-            Err(e) if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::TimedOut => {
-                #[cfg(target_os = "linux")]
-                if let Err(icmp_error) = net_utils::check_icmp_error_queue(socket) {
-                    return Err(ServerErrorResponses::IO(icmp_error));
-                }
-
-                if retry_count >= retry_max {
-                    return Err(ServerErrorResponses::IO(std::io::Error::new(
-                        ErrorKind::TimedOut,
-                        "Max retry count reached - destination may be unreachable",
-                    )));
-                }
-                retry_count += 1;
-                continue;
-            }
-            Err(e) => match e.kind() {
-                ErrorKind::ConnectionReset
-                | ErrorKind::ConnectionRefused
-                | ErrorKind::NetworkUnreachable
-                | ErrorKind::HostUnreachable => {
-                    return Err(ServerErrorResponses::IO(std::io::Error::new(
-                        e.kind(),
-                        format!("Destination unreachable during receive: {}", e),
-                    )));
-                }
-                _ => return Err(ServerErrorResponses::IO(e)),
-            },
-        }
-    }
-}
 
 pub fn query_request(
     buf: &mut [u8; UDP_BUFFER_SIZE],
@@ -249,7 +147,7 @@ pub fn get_request(
         .unwrap();
 
     let mut offset: usize = 0;
-    let mut peers: Vec<Peer> = Vec::with_capacity(1); // at least one client
+    let mut peers: Vec<types::Peer> = Vec::with_capacity(1); // at least one client
 
     let key: [u8; 32] = match password {
         Some(p) => shared::crypto::derive_key_from_password(p.as_bytes(), &salt),
@@ -413,7 +311,7 @@ pub fn P2P_query(
     dst: &SocketAddr,
     socket: &UdpSocket,
     encrypted: bool, // avoid deadlock
-    key: [u8; 32]
+    key: [u8; 32],
 ) -> Result<std::net::Ipv4Addr, Box<dyn std::error::Error>> {
     #[cfg(debug_assertions)]
     println!("P2P QUERY method");
@@ -426,43 +324,39 @@ pub fn P2P_query(
         STANDARD_RETRY_MAX,
     )?;
 
-    let iv: [u8; BLOCK_SIZE] = buf[P2PStandardDataPositions::IV as usize
-        ..P2PStandardDataPositions::IV as usize + BLOCK_SIZE]
+    let iv: [u8; BLOCK_SIZE] = buf
+        [P2PStandardDataPositions::IV as usize..P2PStandardDataPositions::IV as usize + BLOCK_SIZE]
         .try_into()
         .expect("this should never happen");
 
     let tmp_decrypted: Vec<u8>;
 
-    return Ok(std::net::Ipv4Addr::from_str(
-        if encrypted {
-            match shared::crypto::decrypt(
-                &key,
-                &iv,
-                &buf[P2PStandardDataPositions::DATA as usize..data_lenght - 1],
-            ) {
-                Ok(decrypted) => {
-                    tmp_decrypted = decrypted;
-                    match std::str::from_utf8(&tmp_decrypted) {
-                        Ok(s) => s,
-                        Err(e) => return Err(Box::new(e)),
-                    }
-                }
-                Err(e) => {
-                    return Err(Box::new(ServerErrorResponses::GENERAL_ERROR(format!(
-                        "{}",
-                        e
-                    ))));
+    return Ok(std::net::Ipv4Addr::from_str(if encrypted {
+        match shared::crypto::decrypt(
+            &key,
+            &iv,
+            &buf[P2PStandardDataPositions::DATA as usize..data_lenght - 1],
+        ) {
+            Ok(decrypted) => {
+                tmp_decrypted = decrypted;
+                match std::str::from_utf8(&tmp_decrypted) {
+                    Ok(s) => s,
+                    Err(e) => return Err(Box::new(e)),
                 }
             }
-        } else {
-            match std::str::from_utf8(
-                &buf[P2PStandardDataPositions::DATA as usize..data_lenght - 1],
-            ) {
-                Ok(s) => s,
-                Err(e) => return Err(Box::new(e)),
+            Err(e) => {
+                return Err(Box::new(ServerErrorResponses::GENERAL_ERROR(format!(
+                    "{}",
+                    e
+                ))));
             }
-        },
-    )?);
+        }
+    } else {
+        match std::str::from_utf8(&buf[P2PStandardDataPositions::DATA as usize..data_lenght - 1]) {
+            Ok(s) => s,
+            Err(e) => return Err(Box::new(e)),
+        }
+    })?);
 }
 
 #[allow(non_snake_case)]
@@ -480,13 +374,9 @@ pub fn P2P_hello(
         let mut iv: [u8; BLOCK_SIZE] = [0u8; BLOCK_SIZE];
         rng.fill_bytes(&mut iv);
         (
-            shared::crypto::encrypt(
-                &key,
-                &iv,
-                &private_ip_str.as_bytes(),
-            )
-            .unwrap()
-            .into_boxed_slice(),
+            shared::crypto::encrypt(&key, &iv, &private_ip_str.as_bytes())
+                .unwrap()
+                .into_boxed_slice(),
             iv,
         )
     } else {
@@ -510,8 +400,8 @@ pub fn P2P_hello(
     );
 
     send_buf[0] = P2PMethods::PEER_HELLO as u8;
-    send_buf[P2PStandardDataPositions::IV as usize
-        ..P2PStandardDataPositions::IV as usize + BLOCK_SIZE]
+    send_buf
+        [P2PStandardDataPositions::IV as usize..P2PStandardDataPositions::IV as usize + BLOCK_SIZE]
         .copy_from_slice(&iv);
 
     send_buf[P2PStandardDataPositions::DATA as usize..].copy_from_slice(&private_ip_final);
@@ -523,7 +413,7 @@ pub fn P2P_hello(
 }
 
 pub async fn handle_incoming_connection(
-    buf: [u8; UDP_BUFFER_SIZE],
+    mut buf: [u8; UDP_BUFFER_SIZE],
     src: SocketAddr,
     network: Arc<RwLock<types::Network>>,
     tun_iface: Arc<tappers::Tun>,
@@ -533,7 +423,6 @@ pub async fn handle_incoming_connection(
     #[cfg(debug_assertions)]
     eprintln!("recived method 0x{:02x}", buf[0]);
     match buf[0] {
-        
         x if x == P2PMethods::PACKET as u8 => {
             #[cfg(debug_assertions)]
             println!("PACKET from difernt peer receved");
@@ -571,7 +460,14 @@ pub async fn handle_incoming_connection(
             let private_ip = network.read().unwrap().private_ip;
             let private_ip_str = private_ip.to_string();
             let mut send_buf: Box<[u8]> = if encrypted {
-                vec![0; P2PStandardDataPositions::DATA as usize + 1 + (private_ip_str.len() + (BLOCK_SIZE - (private_ip_str.len() % BLOCK_SIZE)))].into() // calculate lenght of data with block alligment
+                vec![
+                    0;
+                    P2PStandardDataPositions::DATA as usize
+                        + 1
+                        + (private_ip_str.len()
+                            + (BLOCK_SIZE - (private_ip_str.len() % BLOCK_SIZE)))
+                ]
+                .into() // calculate lenght of data with block alligment
             } else {
                 vec![0; P2PStandardDataPositions::DATA as usize + 1 + private_ip_str.len()].into()
             };
@@ -581,10 +477,26 @@ pub async fn handle_incoming_connection(
             if encrypted {
                 let mut rng = rng();
                 rng.fill_bytes(&mut iv);
-                send_buf[P2PStandardDataPositions::IV as usize..P2PStandardDataPositions::IV as usize+BLOCK_SIZE].copy_from_slice(&iv);
-                send_buf[P2PStandardDataPositions::DATA as usize..P2PStandardDataPositions::DATA as usize + (private_ip_str.len() + (BLOCK_SIZE - (private_ip_str.len() % BLOCK_SIZE)))].copy_from_slice(shared::crypto::encrypt(&network.read().unwrap().key, &iv, private_ip_str.as_bytes()).unwrap().as_slice());
+                send_buf[P2PStandardDataPositions::IV as usize
+                    ..P2PStandardDataPositions::IV as usize + BLOCK_SIZE]
+                    .copy_from_slice(&iv);
+                send_buf[P2PStandardDataPositions::DATA as usize
+                    ..P2PStandardDataPositions::DATA as usize
+                        + (private_ip_str.len()
+                            + (BLOCK_SIZE - (private_ip_str.len() % BLOCK_SIZE)))]
+                    .copy_from_slice(
+                        shared::crypto::encrypt(
+                            &network.read().unwrap().key,
+                            &iv,
+                            private_ip_str.as_bytes(),
+                        )
+                        .unwrap()
+                        .as_slice(),
+                    );
             } else {
-                send_buf[P2PStandardDataPositions::DATA as usize..P2PStandardDataPositions::DATA as usize + private_ip_str.len()].copy_from_slice(private_ip_str.as_bytes());
+                send_buf[P2PStandardDataPositions::DATA as usize
+                    ..P2PStandardDataPositions::DATA as usize + private_ip_str.len()]
+                    .copy_from_slice(private_ip_str.as_bytes());
             }
             match socket.send_to(&send_buf, &src) {
                 Ok(s) => {
@@ -595,7 +507,7 @@ pub async fn handle_incoming_connection(
                     eprintln!("Error sending data: {}", e);
                 }
             }
-        },
+        }
         x if x == P2PMethods::PEER_HELLO as u8 => {
             println!("{} peer hello receved from: {}", "[LOG]".blue(), src);
 
@@ -605,7 +517,7 @@ pub async fn handle_incoming_connection(
                 let key: [u8; 32] = network_write_lock.key;
                 let encrypted: bool = network_write_lock.encrypted;
                 #[cfg(debug_assertions)]
-    eprintln!(
+                eprintln!(
         "registering network:\niv: {}\nIP: {}",
         &buf[P2PStandardDataPositions::IV as usize
                         ..P2PStandardDataPositions::IV as usize + BLOCK_SIZE].iter().map(|x| format!("{:02X} ", x)).collect::<String>(),
@@ -614,7 +526,7 @@ pub async fn handle_incoming_connection(
             .map(|x| format!("{:02X} ", x))
             .collect::<String>(),
     );
-                network_write_lock.peers.push(Peer::new(
+                network_write_lock.peers.push(types::Peer::new(
                 src,
                 Some(
                     match std::net::Ipv4Addr::from_str(
@@ -691,7 +603,7 @@ pub async fn handle_incoming_connection(
                     Ok(ip) => ip,
                     Err(e) => {eprintln!("{} error parsing ip, Error: {}", "[ERROR]".red(), e); return false;},
                 } && peer.sock_addr == src});
-                 match socket.send_to(&[P2PMethods::PEER_GOODBYE as u8], &src) {
+            match socket.send_to(&[P2PMethods::PEER_GOODBYE as u8], &src) {
                 Ok(s) => {
                     #[cfg(debug_assertions)]
                     eprintln!("send {} bytes", s);
@@ -701,7 +613,74 @@ pub async fn handle_incoming_connection(
                 }
             }
         }
+        x if x == P2PMethods::NEW_CLIENT_NOTIFY as u8 => {
+            println!(
+                "{} Notified about new client, creating NAT mapping",
+                "[LOG]".blue()
+            );
+            let data_tmp: Box<[u8]>;
+            let peer_addr: std::net::SocketAddr = match std::net::SocketAddr::from_str(
+                match std::str::from_utf8(if network.read().unwrap().encrypted {
+                    match shared::crypto::decrypt(
+                        &network.read().unwrap().key,
+                        &buf[P2PStandardDataPositions::IV as usize
+                            ..P2PStandardDataPositions::IV as usize + BLOCK_SIZE],
+                        &buf[P2PStandardDataPositions::DATA as usize..],
+                    ) {
+                        Ok(v) => {
+                            data_tmp = v.into_boxed_slice();
+                            &data_tmp
+                        }
+                        Err(e) => {
+                            eprintln!(
+                                "{} failed to decrypt sock addr of new client connection not posible Error: {}",
+                                "[ERROR]".red(),
+                                e
+                            );
+                            return;
+                        }
+                    }
+                } else {
+                    &buf[P2PStandardDataPositions::DATA as usize..]
+                }) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        eprintln!(
+                            "{} failed to decode sock addr of new client connection not posible Error: {}",
+                            "[ERROR]".red(),
+                            e
+                        );
+                        return;
+                    }
+                },
+            ) {
+                Ok(sa) => sa,
+                Err(e) => {
+                    eprintln!(
+                        "{} failed to parse sock addr of new client connection not posible Error: {}",
+                        "[ERROR]".red(),
+                        e
+                    );
+                    return;
+                }
+            };
 
+            match P2P_query(
+                // create NAT mapping
+                &mut buf,
+                &peer_addr,
+                &socket,
+                network.read().unwrap().encrypted,
+                network.read().unwrap().key,
+            ) {
+                Ok(_) => {}
+                Err(e) => eprintln!(
+                    "{} failed to create NAT mapping to peer connection may not work Error: {}",
+                    "[ERROR]".red(),
+                    e
+                ),
+            };
+        }
         _ => {
             eprintln!(
                 "{} unknown method ID: 0x{:02x}, Droping!",
