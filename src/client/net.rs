@@ -624,7 +624,7 @@ pub async fn handle_incoming_connection(
             "registering network:\niv: {}\nsockaddr: {}",
             &buf[P2PStandardDataPositions::IV as usize
                             ..P2PStandardDataPositions::IV as usize + BLOCK_SIZE].iter().map(|x| format!("{:02X} ", x)).collect::<String>(),
-        &buf[P2PStandardDataPositions::DATA as usize..]
+        &buf[P2PStandardDataPositions::DATA as usize..data_lenght as usize-1 /*compensate for size and index diference*/]
             .iter()
             .map(|x| format!("{:02X} ", x))
             .collect::<String>(),
