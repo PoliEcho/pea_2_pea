@@ -412,7 +412,8 @@ pub fn P2P_query(
     buf: &mut [u8; UDP_BUFFER_SIZE],
     dst: &SocketAddr,
     socket: &UdpSocket,
-    network: Arc<std::sync::RwLock<types::Network>>,
+    encrypted: bool, // avoid deadlock
+    key: [u8; 32]
 ) -> Result<std::net::Ipv4Addr, Box<dyn std::error::Error>> {
     #[cfg(debug_assertions)]
     println!("P2P QUERY method");
@@ -433,9 +434,9 @@ pub fn P2P_query(
     let tmp_decrypted: Vec<u8>;
 
     return Ok(std::net::Ipv4Addr::from_str(
-        if network.read().unwrap().encrypted {
+        if encrypted {
             match shared::crypto::decrypt(
-                &network.read().unwrap().key,
+                &key,
                 &iv,
                 &buf[P2PStandardDataPositions::DATA as usize..data_lenght - 1],
             ) {
@@ -470,16 +471,17 @@ pub fn P2P_hello(
     dst: &SocketAddr,
     socket: &UdpSocket,
     private_ip: Ipv4Addr,
-    network: Arc<RwLock<types::Network>>,
+    encrypted: bool, // avoid deadlock
+    key: [u8; 32],
 ) -> Result<usize, ServerErrorResponses> {
     let private_ip_str = private_ip.to_string();
-    let (private_ip_final, iv) = if network.read().unwrap().encrypted {
+    let (private_ip_final, iv) = if encrypted {
         let mut rng = rng();
         let mut iv: [u8; BLOCK_SIZE] = [0u8; BLOCK_SIZE];
         rng.fill_bytes(&mut iv);
         (
             shared::crypto::encrypt(
-                &network.read().unwrap().key,
+                &key,
                 &iv,
                 &private_ip_str.as_bytes(),
             )
@@ -495,7 +497,17 @@ pub fn P2P_hello(
     };
 
     let mut send_buf: Box<[u8]> =
-        vec![0u8; 1 + P2PStandardDataPositions::DATA as usize + private_ip_final.len()].into();
+        vec![0u8; P2PStandardDataPositions::DATA as usize + private_ip_final.len()].into();
+
+    #[cfg(debug_assertions)]
+    eprintln!(
+        "registering network:\niv: {}\nIP: {}",
+        iv.iter().map(|x| format!("{:02X} ", x)).collect::<String>(),
+        private_ip_final
+            .iter()
+            .map(|x| format!("{:02X} ", x))
+            .collect::<String>(),
+    );
 
     send_buf[0] = P2PMethods::PEER_HELLO as u8;
     send_buf[P2PStandardDataPositions::IV as usize
@@ -569,7 +581,7 @@ pub async fn handle_incoming_connection(
             if encrypted {
                 let mut rng = rng();
                 rng.fill_bytes(&mut iv);
-
+                send_buf[P2PStandardDataPositions::IV as usize..P2PStandardDataPositions::IV as usize+BLOCK_SIZE].copy_from_slice(&iv);
                 send_buf[P2PStandardDataPositions::DATA as usize..P2PStandardDataPositions::DATA as usize + (private_ip_str.len() + (BLOCK_SIZE - (private_ip_str.len() % BLOCK_SIZE)))].copy_from_slice(shared::crypto::encrypt(&network.read().unwrap().key, &iv, private_ip_str.as_bytes()).unwrap().as_slice());
             } else {
                 send_buf[P2PStandardDataPositions::DATA as usize..P2PStandardDataPositions::DATA as usize + private_ip_str.len()].copy_from_slice(private_ip_str.as_bytes());
@@ -592,13 +604,23 @@ pub async fn handle_incoming_connection(
                 let mut network_write_lock = network.write().unwrap();
                 let key: [u8; 32] = network_write_lock.key;
                 let encrypted: bool = network_write_lock.encrypted;
+                #[cfg(debug_assertions)]
+    eprintln!(
+        "registering network:\niv: {}\nIP: {}",
+        &buf[P2PStandardDataPositions::IV as usize
+                        ..P2PStandardDataPositions::IV as usize + BLOCK_SIZE].iter().map(|x| format!("{:02X} ", x)).collect::<String>(),
+        &buf[P2PStandardDataPositions::DATA as usize..data_lenght as usize-1 /*compensate for size and index diference*/]
+            .iter()
+            .map(|x| format!("{:02X} ", x))
+            .collect::<String>(),
+    );
                 network_write_lock.peers.push(Peer::new(
                 src,
                 Some(
                     match std::net::Ipv4Addr::from_str(
                         match std::str::from_utf8(if encrypted {
                             match shared::crypto::decrypt(&key, &buf[P2PStandardDataPositions::IV as usize
-                        ..P2PStandardDataPositions::IV as usize + BLOCK_SIZE], &buf[P2PStandardDataPositions::DATA as usize..data_lenght as usize-1 /*compensate for size and index diference*/]) {
+                        ..P2PStandardDataPositions::IV as usize + BLOCK_SIZE], &buf[P2PStandardDataPositions::DATA as usize..data_lenght as usize]) {
                                 Ok(data) => {tmp_data = data; &tmp_data},
                                 Err(e) => {
                                 eprintln!(
@@ -610,7 +632,7 @@ pub async fn handle_incoming_connection(
                             },
                             }
                         } else {
-                            &buf[P2PStandardDataPositions::DATA as usize..data_lenght as usize-1 /*compensate for size and index diference*/]
+                            &buf[P2PStandardDataPositions::DATA as usize..data_lenght as usize]
                         }) {
                             Ok(s) => s,
                             Err(e) => {

@@ -191,13 +191,16 @@ fn main() -> std::io::Result<()> {
             "{} reaching to other peers to obtain ip address",
             "[LOG]".blue()
         );
-        virtual_network
-            .write()
-            .unwrap()
+        let mut network_write_lock = virtual_network.write().unwrap(); // avoid deadlock
+        
+        
+        let encrypted = network_write_lock.encrypted;
+        let key = network_write_lock.key;
+        network_write_lock
             .peers
             .iter_mut()
             .for_each(|peer| {
-                match net::P2P_query(&mut buf, &peer.sock_addr, &socket, virtual_network.clone()) {
+                match net::P2P_query(&mut buf, &peer.sock_addr, &socket, encrypted,key) {
                     Ok(ip) => {
                         ips_used[ip.octets()[3] as usize] = true;
                         peer.private_ip = ip;
@@ -210,23 +213,20 @@ fn main() -> std::io::Result<()> {
                     ),
                 };
             });
+        
 
-        virtual_network.write().unwrap().private_ip = std::net::Ipv4Addr::new(
+        network_write_lock.private_ip = std::net::Ipv4Addr::new(
             DEFAULT_NETWORK_PREFIX[0],
             DEFAULT_NETWORK_PREFIX[1],
             DEFAULT_NETWORK_PREFIX[2],
             ips_used.par_iter().position_first(|&b| !b).unwrap() as u8,
         ); // find first element that is false
 
-        virtual_network
-            .write()
-            .unwrap()
+        network_write_lock
             .peers
             .retain(|peer| peer.private_ip != std::net::Ipv4Addr::UNSPECIFIED); // remove all peers without ip
 
-        virtual_network
-            .read()
-            .unwrap()
+        network_write_lock
             .peers
             .iter()
             .for_each(|peer| {
@@ -234,8 +234,8 @@ fn main() -> std::io::Result<()> {
                     &mut buf,
                     &peer.sock_addr,
                     &socket,
-                    virtual_network.read().unwrap().private_ip,
-                    virtual_network.clone(),
+                    network_write_lock.private_ip,
+                    encrypted,key
                 ) {
                     Ok(_) => eprintln!(
                         "{} registered with peer: {}",
