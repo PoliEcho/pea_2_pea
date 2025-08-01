@@ -195,18 +195,21 @@ fn main() -> std::io::Result<()> {
         let encrypted = network_write_lock.encrypted;
         let key = network_write_lock.key;
         network_write_lock.peers.iter_mut().for_each(|peer| {
-            match net::P2P_query(&mut buf, &peer.sock_addr, &socket, encrypted, key) {
-                Ok(ip) => {
-                    ips_used[ip.octets()[3] as usize] = true;
-                    peer.private_ip = ip;
+            loop {
+                match net::P2P_query(&mut buf, &peer.sock_addr, &socket, encrypted, key) {
+                    Ok(ip) => {
+                        ips_used[ip.octets()[3] as usize] = true;
+                        peer.private_ip = ip;
+                        break;
+                    }
+                    Err(e) => eprintln!(
+                        "{} while getting ip from peer: {}, Error: {}, Retrying!",
+                        "[ERROR]".red(),
+                        peer.sock_addr,
+                        e
+                    ),
                 }
-                Err(e) => eprintln!(
-                    "{} while getting ip from peer: {}, Error: {}",
-                    "[ERROR]".red(),
-                    peer.sock_addr,
-                    e
-                ),
-            };
+            }
         });
 
         network_write_lock.private_ip = std::net::Ipv4Addr::new(
