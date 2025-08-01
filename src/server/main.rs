@@ -1,8 +1,8 @@
 mod net;
 mod types;
 mod utils;
+use smol::net::UdpSocket;
 use std::{
-    net::UdpSocket,
     process::exit,
     sync::{Arc, RwLock},
 };
@@ -11,13 +11,10 @@ use orx_concurrent_vec::ConcurrentVec;
 fn main() -> std::io::Result<()> {
     {
         let socket: Arc<UdpSocket> = Arc::new(
-            (|| -> std::io::Result<UdpSocket> {
+            smol::block_on(async {
                 let listen_port: u16 = pea_2_pea::SERVER_PORT;
-                match UdpSocket::bind(format!("0.0.0.0:{}", listen_port)) {
-                    Ok(socket) => return Ok(socket),
-                    Err(e) => return Err(e),
-                }
-            })()
+                UdpSocket::bind(format!("0.0.0.0:{}", listen_port)).await
+            })
             .expect("Failed to bind to any available port"),
         );
 
@@ -28,7 +25,7 @@ fn main() -> std::io::Result<()> {
         smol::block_on(async {
             loop {
                 buf.fill(0);
-                match socket.recv_from(&mut buf) {
+                match socket.recv_from(&mut buf).await {
                     Ok((data_length, src)) => {
                         smol::spawn(net::handle_request(
                             buf,

@@ -2,7 +2,7 @@ use pea_2_pea::*;
 pub fn send_general_error_to_client<T: std::error::Error>(
     dst: core::net::SocketAddr,
     e: T,
-    socket: std::sync::Arc<std::net::UdpSocket>,
+    socket: std::sync::Arc<smol::net::UdpSocket>,
 ) {
     let mut resp_buf: Box<[u8]> = vec![0; e.to_string().len() + 1].into_boxed_slice();
 

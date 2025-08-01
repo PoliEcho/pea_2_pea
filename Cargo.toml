@@ -19,6 +19,7 @@ chrono = "0.4.41"
 cipher = { version = "0.4.4", features = ["block-padding", "alloc"] }
 clap = { version = "4.5.41", features = ["derive"] }
 colored = "3.0.0"
+futures = "0.3.31"
 hmac = "0.12.1"
 orx-concurrent-vec = "3.6.0"
 pbkdf2 = "0.12.2"

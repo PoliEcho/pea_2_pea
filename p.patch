@@ -1,0 +1,137 @@
+--- a/src/server/net.rs
++++ b/src/server/net.rs
+@@ -59,19 +59,22 @@ pub async fn handle_request(
+             };
+         }
+ 
+-        let registration = match registration_vector
++        let registration_opt = registration_vector
+             .iter()
+-            .find(|elem| elem.map(|s| &s.net_id == &net_id)) // find if id exists
+-        {
+-            Some(registration) => registration,
+-            None => {match socket.send_to(&[ServerResponse::ID_DOESNT_EXIST as u8], src).await{
++            .find(|elem| elem.map(|s| &s.net_id == &net_id))
++            .cloned();
++
++        let registration = match registration_opt {
++            Some(registration) => registration,
++            None => {
++                match socket.send_to(&[ServerResponse::ID_DOESNT_EXIST as u8], src).await {
+                     Ok(s) => {
+                         #[cfg(debug_assertions)]
+                         eprintln!("send {} bytes", s);
+                     }
+                     Err(e) => {
+                         eprintln!("Error sending data: {}", e);
+                     }
+-                }; 
++                }
+                 return;
+             },
+         };
+@@ -162,19 +165,22 @@ pub async fn handle_request(
+             return;
+         };
+ 
+-        match registration_vector
++        let registration_exists = registration_vector
+             .iter()
+-            .find(|elem| elem.map(|s| &s.net_id == &net_id)) // find if id exists
+-        {
+-            Some(_) => {
+-                match socket.send_to(&[ServerResponse::ID_EXISTS as u8], src).await {
++            .find(|elem| elem.map(|s| &s.net_id == &net_id))
++            .is_some();
++
++        if registration_exists {
++            match socket.send_to(&[ServerResponse::ID_EXISTS as u8], src).await {
++                Ok(s) => {
++                    #[cfg(debug_assertions)]
++                    eprintln!("send {} bytes", s);
++                }
++                Err(e) => {
++                    eprintln!("Error sending data: {}", e);
++                }
++            }
++            return;
+-                    Ok(s) => {
+-                        #[cfg(debug_assertions)]
+-                        eprintln!("send {} bytes", s);
+-                    }
+-                    Err(e) => {
+-                        eprintln!("Error sending data: {}", e);
+-                    }
+-                };
+-                return;
+-            }
+-            None => {}
+         }
+ 
+         let salt: Option<[u8; BLOCK_SIZE as usize]>;
+@@ -321,19 +327,22 @@ pub async fn handle_request(
+             );
+ 
+-        match registration_vector
++        let registration_opt = registration_vector
+             .iter()
+-            .find(|elem| elem.map(|s| &s.net_id == &net_id)) // find if id exists
+-        {
+-            Some(reg) => {
++            .find(|elem| elem.map(|s| &s.net_id == &net_id))
++            .cloned();
++
++        match registration_opt {
++            Some(reg) => {
+                 let current_time = chrono::Utc::now().timestamp();
+-                reg.update(|r| {r.last_heart_beat = current_time;
++                reg.update(|r| {
++                    r.last_heart_beat = current_time;
+                     match r.clients.par_iter_mut().find_any(|c| *c.client_sock_addr == *sock_addr && c.iv == iv) {
+                         Some(c) => c.last_heart_beat = current_time,
+-                        None => {// add new client if it isn't found
++                        None => {
+                             r.clients.par_iter().for_each(|c| {let mut send_buf: Box<[u8]> = vec![0; P2PStandardDataPositions::DATA as usize + sock_addr_len as usize].into();
+                                 send_buf[0] = P2PMethods::NEW_CLIENT_NOTIFY as u8;
+                                 send_buf[P2PStandardDataPositions::IV as usize..P2PStandardDataPositions::IV as usize+ BLOCK_SIZE].copy_from_slice(&iv);
+                                 send_buf[P2PStandardDataPositions::DATA as usize..P2PStandardDataPositions::DATA as usize + sock_addr_len as usize].copy_from_slice(&sock_addr);
+                                 let sock_clone = socket.clone();
+                                 async move {
+                                     match sock_clone.send_to(&send_buf, c.src).await {
+                                         Ok(data_lenght) => {
+                                             #[cfg(debug_assertions)]
+                                             eprintln!("send {} bytes", data_lenght);
+                                         },
+                                         Err(e) => eprintln!("{} failed to send data to client Error: {}", "[ERROR]".red(), e),
+                                     }
+                                 };
+                             });
+                             r.clients.push(types::Client::new(sock_addr.clone(), current_time, iv, src));
+                         }
+                     };
+                 });
+             }
+-            None => {match socket.send_to(&[ServerResponse::ID_DOESNT_EXIST as u8], src).await {
+-                    Ok(s) => {
+-                        #[cfg(debug_assertions)]
+-                        eprintln!("send {} bytes", s);
+-                    }
+-                    Err(e) => {
+-                        eprintln!("Error sending data: {}", e);
+-                    }
+-                }; return;}
++            None => {
++                match socket.send_to(&[ServerResponse::ID_DOESNT_EXIST as u8], src).await {
++                    Ok(s) => {
++                        #[cfg(debug_assertions)]
++                        eprintln!("send {} bytes", s);
++                    }
++                    Err(e) => {
++                        eprintln!("Error sending data: {}", e);
++                    }
++                }
++                return;
++            }
+         }
+ 
+         match socket.send_to(&[ServerMethods::HEARTBEAT as u8], src).await {

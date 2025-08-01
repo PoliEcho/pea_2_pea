@@ -1,17 +1,29 @@
 use crate::utils::send_general_error_to_client;
 
+use smol::net::UdpSocket;
 use super::types;
 use super::utils;
-use colored::Colorize;
 use orx_concurrent_vec::ConcurrentVec;
 use pea_2_pea::*;
 use rayon::prelude::*;
 
 use std::sync::Arc;
 use std::u8;
+
+async fn send_with_count(socket: std::sync::Arc<UdpSocket> , dst: &core::net::SocketAddr, buf: &[u8]) {
+    match socket.send_to(buf, dst).await {
+                Ok(s) => {
+                    #[cfg(debug_assertions)]
+                    eprintln!("send {} bytes", s);
+                }
+                Err(e) => {
+                    eprintln!("Error snding data: {}", e);
+                }
+            }
+}
 pub async fn handle_request(
     buf: [u8; UDP_BUFFER_SIZE],
-    socket: std::sync::Arc<std::net::UdpSocket>,
+    socket: std::sync::Arc<UdpSocket>,
     src: core::net::SocketAddr,
     data_len: usize,
     registration_vector: Arc<ConcurrentVec<types::Registration>>,
@@ -25,7 +37,7 @@ pub async fn handle_request(
             let mut send_vec: Vec<u8> = client_sock_addr_str.into();
             send_vec.insert(0, ServerMethods::QUERY as u8);
 
-            match socket.send_to(&send_vec, &src) {
+            match socket.send_to(&send_vec, &src).await {
                 Ok(s) => {
                     #[cfg(debug_assertions)]
                     eprintln!("send {} bytes", s);
@@ -63,15 +75,7 @@ pub async fn handle_request(
                 .find(|elem| elem.map(|s| &s.net_id == &net_id)) // find if id exists
             {
                 Some(registration) => registration,
-                None => {match socket.send_to(&[ServerResponse::ID_DOESNT_EXIST as u8], src){
-                Ok(s) => {
-                    #[cfg(debug_assertions)]
-                    eprintln!("send {} bytes", s);
-                }
-                Err(e) => {
-                    eprintln!("Error sending data: {}", e);
-                }
-            };
+                None => {futures::executor::block_on(send_with_count(socket, &src ,&[ServerResponse::ID_DOESNT_EXIST as u8]));
                     return;
                 },
             }
@@ -131,7 +135,7 @@ pub async fn handle_request(
                 return;
             }
 
-            match socket.send_to(&send_vec, &src) {
+            match socket.send_to(&send_vec, &src).await {
                 Ok(s) => {
                     #[cfg(debug_assertions)]
                     eprintln!("send {} bytes", s);
@@ -178,15 +182,7 @@ pub async fn handle_request(
                 .find(|elem| elem.map(|s| &s.net_id == &net_id)) // find if id exists
             {
                 Some(_) => {
-                    match socket.send_to(&[ServerResponse::ID_EXISTS as u8], src) {
-                        Ok(s) => {
-                            #[cfg(debug_assertions)]
-                            eprintln!("send {} bytes", s);
-                        }
-                        Err(e) => {
-                            eprintln!("Error sending data: {}", e);
-                        }
-                    };
+                        futures::executor::block_on(send_with_count(socket, &src, &[ServerResponse::ID_EXISTS as u8]));
                     return;
                 }
                 None => {}
@@ -245,7 +241,7 @@ pub async fn handle_request(
                 iv,
                 src
             ));
-            match socket.send_to(&[ServerMethods::REGISTER as u8], src) {
+            match socket.send_to(&[ServerMethods::REGISTER as u8], src).await {
                 Ok(s) => {
                     #[cfg(debug_assertions)]
                     eprintln!("send {} bytes", s);
@@ -333,13 +329,9 @@ pub async fn handle_request(
                             send_buf[0] = P2PMethods::NEW_CLIENT_NOTIFY as u8;
                             send_buf[P2PStandardDataPositions::IV as usize..P2PStandardDataPositions::IV as usize+ BLOCK_SIZE].copy_from_slice(&iv);
                             send_buf[P2PStandardDataPositions::DATA as usize..P2PStandardDataPositions::DATA as usize + sock_addr_len as usize].copy_from_slice(&sock_addr);
-                            match  socket.send_to(&send_buf, src) {
-                                Ok(data_lenght) => {
-                                    #[cfg(debug_assertions)]
-                                    eprintln!("send {} bytes", data_lenght);
-                                },
-                                Err(e) => eprintln!("{} failed to send data to client Error: {}", "[ERROR]".red(), e),
-                            };
+                            let sock_clone = socket.clone();
+                            futures::executor::block_on(async move {
+                            send_with_count(sock_clone, &c.src, &send_buf).await});
                         });
                             
                             r.clients.push(types::Client::new(sock_addr.clone(), current_time, iv, src));
@@ -347,17 +339,9 @@ pub async fn handle_request(
                     };
                 });
                 }
-                None => {match socket.send_to(&[ServerResponse::ID_DOESNT_EXIST as u8], src) {
-                Ok(s) => {
-                    #[cfg(debug_assertions)]
-                    eprintln!("send {} bytes", s);
-                }
-                Err(e) => {
-                    eprintln!("Error sending data: {}", e);
-                }
-            } return;}
+                None => {futures::executor::block_on(send_with_count(socket, &src, &[ServerResponse::ID_DOESNT_EXIST as u8])); return;}
             }
-            match socket.send_to(&[ServerMethods::HEARTBEAT as u8], src) {
+            match socket.send_to(&[ServerMethods::HEARTBEAT as u8], src).await {
                 // succes responce
                 Ok(s) => {
                     #[cfg(debug_assertions)]
