@@ -30,8 +30,10 @@ pub async fn read_tun_iface(
 ) {
     let mut buf: [u8; IP_BUFFER_SIZE] = [0u8; IP_BUFFER_SIZE];
 
-    smol::block_on(async {
+    
         loop {
+             #[cfg(debug_assertions)]
+            eprintln!("Started listening for ip packets");
             let data_lenght = tun_iface.recv(&mut buf).unwrap(); // build in auto termination, isn't it great
             smol::spawn(handle_ip_packet(
                 buf[..data_lenght - 1].to_vec().into(),
@@ -40,7 +42,7 @@ pub async fn read_tun_iface(
             ))
             .detach();
         }
-    });
+    
 }
 
 pub async fn handle_ip_packet(
@@ -48,6 +50,8 @@ pub async fn handle_ip_packet(
     network: Arc<RwLock<Network>>,
     socket: Arc<std::net::UdpSocket>,
 ) {
+    #[cfg(debug_assertions)]
+            eprintln!("Processing IP packet");
     let dst_ip = std::net::Ipv4Addr::from(
         match <[u8; 4]>::try_from(
             &packet_data[DEST_IN_IPV4_OFFSET..DEST_IN_IPV4_OFFSET + IPV4_SIZE],
