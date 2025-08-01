@@ -23,14 +23,14 @@ pub fn create_tun_interface(
     return Ok(tun_iface);
 }
 
-pub async fn read_tun_iface(
+pub fn read_tun_iface(
     tun_iface: Arc<tappers::Tun>,
     socket: Arc<std::net::UdpSocket>,
     network: Arc<RwLock<Network>>,
 ) {
     let mut buf: [u8; IP_BUFFER_SIZE] = [0u8; IP_BUFFER_SIZE];
 
-    
+        smol::block_on(async {
         loop {
              #[cfg(debug_assertions)]
             eprintln!("Started listening for ip packets");
@@ -41,7 +41,7 @@ pub async fn read_tun_iface(
                 socket.clone(),
             ))
             .detach();
-        }
+        }});
     
 }
 
