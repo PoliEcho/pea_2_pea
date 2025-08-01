@@ -287,7 +287,7 @@ fn main() -> std::io::Result<()> {
                         socket.clone(),
                         data_lenght,
                     ))
-                    .detach();
+                    .await;
                 }
                 Err(e) => {
                     eprintln!(

@@ -37,15 +37,7 @@ pub async fn handle_request(
             let mut send_vec: Vec<u8> = client_sock_addr_str.into();
             send_vec.insert(0, ServerMethods::QUERY as u8);
 
-            match socket.send_to(&send_vec, &src).await {
-                Ok(s) => {
-                    #[cfg(debug_assertions)]
-                    eprintln!("send {} bytes", s);
-                }
-                Err(e) => {
-                    eprintln!("Error snding data: {}", e);
-                }
-            }
+            send_with_count(socket, &src, &send_vec).await;
         }
 
         x if x == ServerMethods::GET as u8 => {
@@ -135,15 +127,7 @@ pub async fn handle_request(
                 return;
             }
 
-            match socket.send_to(&send_vec, &src).await {
-                Ok(s) => {
-                    #[cfg(debug_assertions)]
-                    eprintln!("send {} bytes", s);
-                }
-                Err(e) => {
-                    eprintln!("Error snding data: {}", e);
-                }
-            }
+            send_with_count(socket, &src, &send_vec).await;
         }
         x if x == ServerMethods::REGISTER as u8 => {
             #[cfg(debug_assertions)]
@@ -241,15 +225,7 @@ pub async fn handle_request(
                 iv,
                 src
             ));
-            match socket.send_to(&[ServerMethods::REGISTER as u8], src).await {
-                Ok(s) => {
-                    #[cfg(debug_assertions)]
-                    eprintln!("send {} bytes", s);
-                }
-                Err(e) => {
-                    eprintln!("Error sending data: {}", e);
-                }
-            }
+            send_with_count(socket, &src, &[ServerMethods::REGISTER as u8]).await;
             #[cfg(debug_assertions)]
             println!("network registered");
         }
@@ -341,16 +317,7 @@ pub async fn handle_request(
                 }
                 None => {futures::executor::block_on(send_with_count(socket, &src, &[ServerResponse::ID_DOESNT_EXIST as u8])); return;}
             }
-            match socket.send_to(&[ServerMethods::HEARTBEAT as u8], src).await {
-                // succes responce
-                Ok(s) => {
-                    #[cfg(debug_assertions)]
-                    eprintln!("send {} bytes", s);
-                }
-                Err(e) => {
-                    eprintln!("Error sending data: {}", e);
-                }
-            }
+            send_with_count(socket, &src, &[ServerMethods::HEARTBEAT as u8]).await;
             return;
         }
         _ => {

@@ -127,8 +127,10 @@ pub fn send_and_recv_with_retry(
 
     let mut retry_count: usize = 0;
 
+    let mut resend: bool = true;
+
     loop {
-        match socket.send_to(send_buf, dst) {
+        if resend {match socket.send_to(send_buf, dst) {
             Ok(s) => {
                 #[cfg(debug_assertions)]
                 eprintln!("send {} bytes", s);
@@ -145,8 +147,8 @@ pub fn send_and_recv_with_retry(
                 }
                 _ => return Err(ServerErrorResponses::IO(e)),
             },
-        }
-
+        }} else {resend = true;}
+    
         #[cfg(target_os = "linux")]
         if let Err(icmp_error) = check_icmp_error_queue(socket) {
             return Err(ServerErrorResponses::IO(icmp_error));
@@ -175,6 +177,10 @@ pub fn send_and_recv_with_retry(
                     }
                     x if x == ServerResponse::ID_EXISTS as u8 => {
                         return Err(ServerErrorResponses::ID_EXISTS);
+                    }
+                    x if x == P2PMethods::DO_NOTHING as u8 => {
+                        resend = false;
+                        continue;
                     }
                     _ => {
                         continue;

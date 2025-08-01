@@ -413,7 +413,7 @@ pub fn P2P_hello(
 }
 
 pub async fn handle_incoming_connection(
-    mut buf: [u8; UDP_BUFFER_SIZE],
+    buf: [u8; UDP_BUFFER_SIZE],
     src: SocketAddr,
     network: Arc<RwLock<types::Network>>,
     tun_iface: Arc<tappers::Tun>,
@@ -425,7 +425,7 @@ pub async fn handle_incoming_connection(
     match buf[0] {
         x if x == P2PMethods::PACKET as u8 => {
             #[cfg(debug_assertions)]
-            println!("PACKET from difernt peer receved");
+            println!("PACKET from different peer receved");
 
             if network.read().unwrap().encrypted {
                 match shared::crypto::decrypt(
@@ -510,6 +510,11 @@ pub async fn handle_incoming_connection(
         }
         x if x == P2PMethods::PEER_HELLO as u8 => {
             println!("{} peer hello receved from: {}", "[LOG]".blue(), src);
+
+            if data_lenght - 1 < P2PStandardDataPositions::DATA as usize {
+                eprintln!("{} peer hello packet too small", "[ERROR]".red());
+                return;
+            }
 
             let tmp_data: Vec<u8>;
             {
@@ -677,7 +682,7 @@ pub async fn handle_incoming_connection(
                 }
             };
             for _ in 0..MAPPING_SHOT_COUNT {
-                match socket.send_to(&[P2PMethods::PEER_QUERY as u8], peer_addr) {
+                match socket.send_to(&[P2PMethods::DO_NOTHING as u8], peer_addr) {
                     Ok(s) => {
                         #[cfg(debug_assertions)]
                         eprintln!("send {} bytes", s);
@@ -685,6 +690,12 @@ pub async fn handle_incoming_connection(
                     Err(e) => eprintln!("{} failed to send puching packet: {}", "[ERROR]".red(), e),
                 }
             }
+        }
+        x if x == P2PMethods::DO_NOTHING as u8 => {
+            println!(
+                "{} punching succesful DO_NOTHING receved",
+                "[SUCCESS]".green()
+            );
         }
         _ => {
             eprintln!(

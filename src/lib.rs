@@ -122,6 +122,7 @@ pub enum P2PMethods {
     PEER_GOODBYE = 22, // sends private ip encrypted if on
     PACKET = 23,       // sends IP packet encrypted if on
     NEW_CLIENT_NOTIFY = 24,
+    DO_NOTHING = 25,
 }
 #[repr(usize)]
 pub enum P2PStandardDataPositions {
