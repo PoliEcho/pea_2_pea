@@ -11,6 +11,8 @@ pub const STANDARD_RETRY_MAX: usize = 10;
 pub const DEST_IN_IPV4_OFFSET: usize = 16;
 pub const IPV4_SIZE: usize = 4;
 
+pub const MAPPING_SHOT_COUNT: u8 = 5;
+
 pub const DEFAULT_NETWORK_PREFIX: [u8; 3] = [172, 22, 44];
 
 #[repr(u8)]

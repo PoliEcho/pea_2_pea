@@ -620,7 +620,7 @@ pub async fn handle_incoming_connection(
             );
 
             #[cfg(debug_assertions)]
-                eprintln!(
+            eprintln!(
             "registering network:\niv: {}\nsockaddr: {}",
             &buf[P2PStandardDataPositions::IV as usize
                             ..P2PStandardDataPositions::IV as usize + BLOCK_SIZE].iter().map(|x| format!("{:02X} ", x)).collect::<String>(),
@@ -637,7 +637,7 @@ pub async fn handle_incoming_connection(
                         &network.read().unwrap().key,
                         &buf[P2PStandardDataPositions::IV as usize
                             ..P2PStandardDataPositions::IV as usize + BLOCK_SIZE],
-                                &buf[P2PStandardDataPositions::DATA as usize..data_lenght as usize /*compensate for size and index diference*/],
+                        &buf[P2PStandardDataPositions::DATA as usize..data_lenght as usize /*compensate for size and index diference*/],
                     ) {
                         Ok(v) => {
                             data_tmp = v.into_boxed_slice();
@@ -676,22 +676,15 @@ pub async fn handle_incoming_connection(
                     return;
                 }
             };
-
-            match P2P_query(
-                // create NAT mapping
-                &mut buf,
-                &peer_addr,
-                &socket,
-                network.read().unwrap().encrypted,
-                network.read().unwrap().key,
-            ) {
-                Ok(_) => {}
-                Err(e) => eprintln!(
-                    "{} failed to create NAT mapping to peer connection may not work Error: {}",
-                    "[ERROR]".red(),
-                    e
-                ),
-            };
+            for _ in 0..MAPPING_SHOT_COUNT {
+                match socket.send_to(&[P2PMethods::PEER_QUERY as u8], peer_addr) {
+                    Ok(s) => {
+                        #[cfg(debug_assertions)]
+                        eprintln!("send {} bytes", s);
+                    }
+                    Err(e) => eprintln!("{} failed to send puching packet: {}", "[ERROR]".red(), e),
+                }
+            }
         }
         _ => {
             eprintln!(

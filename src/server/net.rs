@@ -333,9 +333,8 @@ pub async fn handle_request(
                             send_buf[0] = P2PMethods::NEW_CLIENT_NOTIFY as u8;
                             send_buf[P2PStandardDataPositions::IV as usize..P2PStandardDataPositions::IV as usize+ BLOCK_SIZE].copy_from_slice(&iv);
                             send_buf[P2PStandardDataPositions::DATA as usize..P2PStandardDataPositions::DATA as usize + sock_addr_len as usize].copy_from_slice(&sock_addr);
-                            let mut resp_buf: [u8; UDP_BUFFER_SIZE] = [0u8; UDP_BUFFER_SIZE];
-                            match  shared::net::send_and_recv_with_retry(&mut resp_buf, &send_buf, &c.src, &socket, STANDARD_RETRY_MAX) {
-                                Ok((data_lenght, _)) => {
+                            match  socket.send_to(&send_buf, src) {
+                                Ok(data_lenght) => {
                                     #[cfg(debug_assertions)]
                                     eprintln!("send {} bytes", data_lenght);
                                 },
