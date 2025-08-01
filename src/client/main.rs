@@ -46,6 +46,10 @@ struct Cli {
 
     #[arg(short = 'V', long = "version")]
     version: bool,
+
+    #[arg(short = 'S', long = "symmetric_NAT_bypass_mode")]
+    #[arg(help = "NOT IMPLEMENTED")]
+    symmetric_nat_bypass_mode: bool,
 }
 
 fn main() -> std::io::Result<()> {
