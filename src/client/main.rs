@@ -90,6 +90,11 @@ fn main() -> std::io::Result<()> {
                 Ok(s) => s,
                 Err(e) => return Err(ServerErrorResponses::into_io_error(e)),
             };
+        println!(
+            "{} my bublic sockaddr: {}",
+            "[LOG]".blue(),
+            public_sock_addr_raw
+        );
 
         let mut salt: [u8; BLOCK_SIZE] = [0u8; BLOCK_SIZE];
         let mut iv: [u8; BLOCK_SIZE] = [0u8; BLOCK_SIZE];
@@ -195,6 +200,7 @@ fn main() -> std::io::Result<()> {
         let encrypted = network_write_lock.encrypted;
         let key = network_write_lock.key;
         network_write_lock.peers.iter_mut().for_each(|peer| {
+            let mut retry_count: usize = 0;
             loop {
                 match net::P2P_query(&mut buf, &peer.sock_addr, &socket, encrypted, key) {
                     Ok(ip) => {
@@ -202,12 +208,18 @@ fn main() -> std::io::Result<()> {
                         peer.private_ip = ip;
                         break;
                     }
-                    Err(e) => eprintln!(
-                        "{} while getting ip from peer: {}, Error: {}, Retrying!",
-                        "[ERROR]".red(),
-                        peer.sock_addr,
-                        e
-                    ),
+                    Err(e) => {
+                        eprintln!(
+                            "{} while getting ip from peer: {}, Error: {}, Retrying!",
+                            "[ERROR]".red(),
+                            peer.sock_addr,
+                            e
+                        );
+                        retry_count += 1
+                    }
+                }
+                if retry_count >= STANDARD_RETRY_MAX {
+                    break;
                 }
             }
         });
