@@ -432,7 +432,7 @@ pub async fn handle_incoming_connection(
                     &network.read().unwrap().key,
                     &buf[P2PStandardDataPositions::IV as usize
                         ..P2PStandardDataPositions::IV as usize + BLOCK_SIZE],
-                    &buf[P2PStandardDataPositions::DATA as usize..data_lenght as usize-1 /*compensate for size and index diference*/],
+                    &buf[P2PStandardDataPositions::DATA as usize..data_lenght as usize],
                 ) {
                     Ok(data) => match tun_iface.send(&data) {
                         Ok(_) => {}
@@ -449,7 +449,7 @@ pub async fn handle_incoming_connection(
                     ),
                 }
             } else {
-                match tun_iface.send(&buf[P2PStandardDataPositions::DATA as usize..data_lenght as usize-1 /*compensate for size and index diference*/]) {
+                match tun_iface.send(&buf[P2PStandardDataPositions::DATA as usize..data_lenght as usize]) {
                     Ok(_) => {},
                     Err(e) => eprintln!("{} failed to write packet to tun interface, Error: {}", "[WARNING]".yellow(), e),
                 };
