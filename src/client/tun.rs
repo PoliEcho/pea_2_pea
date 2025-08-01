@@ -37,7 +37,7 @@ pub fn read_tun_iface(
         loop {
             let data_lenght = tun_iface.recv(&mut buf).unwrap(); // build in auto termination, isn't it great
             smol::spawn(handle_ip_packet(
-                buf[..data_lenght - 1].to_vec().into(),
+                buf[..data_lenght].to_vec().into(),
                 network.clone(),
                 socket.clone(),
             ))
