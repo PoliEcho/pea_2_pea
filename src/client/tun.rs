@@ -84,22 +84,25 @@ pub async fn handle_ip_packet(
     let mut iv: [u8; BLOCK_SIZE] = [0u8; BLOCK_SIZE];
     rng.fill_bytes(&mut iv);
 
-    let mut encrypted_data =
+    let mut procesed_data: Vec<u8> = if network.read().unwrap().encrypted {
         match shared::crypto::encrypt(&network.read().unwrap().key, &iv, &packet_data) {
             Ok(cr) => cr,
             Err(e) => {
                 eprintln!("Failed to encrypt packet droping it: {}", e);
                 return;
             }
-        };
+        }
+    } else {
+        packet_data.to_vec()
+    };
 
-    encrypted_data.insert(0, P2PMethods::PACKET as u8);
-    encrypted_data.splice(1..1, iv);
+    procesed_data.insert(0, P2PMethods::PACKET as u8);
+    procesed_data.splice(1..1, iv);
 
     if dst_ip.octets()[3] == 255 {
         network.read().unwrap().peers.par_iter().for_each(|peer| {
             // broadcast
-            match socket.send_to(&encrypted_data, peer.sock_addr) {
+            match socket.send_to(&procesed_data, peer.sock_addr) {
                 Ok(_) => {}
                 Err(e) => eprintln!("failed to send packet: {}", e),
             };
@@ -117,7 +120,7 @@ pub async fn handle_ip_packet(
             None => return,
         };
 
-        match socket.send_to(&encrypted_data, dst) {
+        match socket.send_to(&procesed_data, dst) {
             Ok(_) => {}
             Err(e) => eprintln!("failed to send packet: {}", e),
         };
