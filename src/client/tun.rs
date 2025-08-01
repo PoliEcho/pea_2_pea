@@ -1,9 +1,9 @@
-use std::sync::{Arc, RwLock};
-
 use pea_2_pea::*;
 use rand::RngCore;
 use rayon::prelude::*;
 use sha2::Digest;
+use std::sync::{Arc, RwLock};
+use tappers::Interface;
 
 use crate::types::Network;
 
@@ -11,15 +11,36 @@ pub fn create_tun_interface(
     private_ip: std::net::Ipv4Addr,
     if_name: Option<String>,
 ) -> Result<tappers::Tun, std::io::Error> {
-    let mut tun_iface: tappers::Tun = tappers::Tun::new_named(tappers::Interface::new(
-        if_name.unwrap_or("pea0".to_owned()),
+    #[cfg(not(target_os = "windows"))]
+    let mut tun_iface: tappers::Tun = tappers::Tun::new_named(Interface::new(
+        &if_name.unwrap_or(DEFAULT_INTERFACE_NAME.to_owned()),
     )?)?;
-    let mut addr_req = tappers::AddAddressV4::new(private_ip);
-    addr_req.set_netmask(24);
-    let mut broadcast_addr_oct = private_ip.octets();
-    broadcast_addr_oct[3] = 255;
-    addr_req.set_broadcast(std::net::Ipv4Addr::from(broadcast_addr_oct));
-    tun_iface.add_addr(addr_req)?;
+    #[cfg(target_os = "windows")]
+    let mut tun_iface: tappers::Tun = tappers::Tun::new()?;
+    #[cfg(not(target_os = "windows"))]
+    {
+        let mut addr_req = tappers::AddAddressV4::new(private_ip);
+        addr_req.set_netmask(24);
+        let mut broadcast_addr_oct = private_ip.octets();
+        broadcast_addr_oct[3] = 255;
+        addr_req.set_broadcast(std::net::Ipv4Addr::from(broadcast_addr_oct));
+        tun_iface.add_addr(addr_req)?;
+    }
+    #[cfg(target_os = "windows")]
+    std::process::Command::new("netsh").args([
+        "interface",
+        "ipv4",
+        "set",
+        "address",
+        &format!(
+            "name=\"{}\"",
+            tun_iface.name()?.name().into_string().unwrap()
+        ),
+        "static",
+        &private_ip.to_string(),
+        "255.255.255.0",
+    ]);
+
     tun_iface.set_up()?;
     return Ok(tun_iface);
 }

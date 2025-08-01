@@ -15,6 +15,8 @@ pub const MAPPING_SHOT_COUNT: u8 = 5;
 
 pub const DEFAULT_NETWORK_PREFIX: [u8; 3] = [172, 22, 44];
 
+pub const DEFAULT_INTERFACE_NAME: &str = "pea0";
+
 #[repr(u8)]
 #[allow(non_camel_case_types)]
 pub enum ServerMethods {

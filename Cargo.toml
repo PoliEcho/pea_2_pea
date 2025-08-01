@@ -28,13 +28,23 @@ rayon = "1.10.0"
 readonly = "0.2.13"
 sha2 = "0.10.9"
 smol = "2.0.2"
-tappers = "0.4.2"
+
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["winsock2", "mswsock", "minwindef"] }
+tappers = { version = "0.4.2", features = ["wintun"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+tappers = "0.4.2"
+
+[target.x86_64-pc-windows-gnu]
+linker = "/usr/bin/x86_64-w64-mingw32-gcc"
+ar = "/usr/bin/x86_64-w64-mingw32-ar"
+
+[target.i686-pc-windows-gnu]
+linker = "/usr/bin/i686-w64-mingw32-gcc"
+ar = "/usr/bin/i686-w64-mingw32-ar"
 
 
 [features]
