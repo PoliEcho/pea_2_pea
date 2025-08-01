@@ -3,6 +3,7 @@ use std::sync::{Arc, RwLock};
 use pea_2_pea::*;
 use rand::RngCore;
 use rayon::prelude::*;
+use sha2::Digest;
 
 use crate::types::Network;
 
@@ -30,10 +31,10 @@ pub fn read_tun_iface(
 ) {
     let mut buf: [u8; IP_BUFFER_SIZE] = [0u8; IP_BUFFER_SIZE];
 
-        smol::block_on(async {
+    smol::block_on(async {
+        #[cfg(debug_assertions)]
+        eprintln!("Started listening for ip packets");
         loop {
-             #[cfg(debug_assertions)]
-            eprintln!("Started listening for ip packets");
             let data_lenght = tun_iface.recv(&mut buf).unwrap(); // build in auto termination, isn't it great
             smol::spawn(handle_ip_packet(
                 buf[..data_lenght - 1].to_vec().into(),
@@ -41,8 +42,8 @@ pub fn read_tun_iface(
                 socket.clone(),
             ))
             .detach();
-        }});
-    
+        }
+    });
 }
 
 pub async fn handle_ip_packet(
@@ -51,7 +52,22 @@ pub async fn handle_ip_packet(
     socket: Arc<std::net::UdpSocket>,
 ) {
     #[cfg(debug_assertions)]
-            eprintln!("Processing IP packet");
+    eprintln!("Processing IP packet");
+
+    #[cfg(debug_assertions)]
+    eprintln!(
+        "packet contets: {}\nhash: {:x}",
+        packet_data
+            .iter()
+            .map(|x| format!("{:02X} ", x))
+            .collect::<String>(),
+        {
+            let mut hasher = sha2::Sha256::new();
+            hasher.update(&packet_data);
+            hasher.finalize()
+        }
+    );
+
     let dst_ip = std::net::Ipv4Addr::from(
         match <[u8; 4]>::try_from(
             &packet_data[DEST_IN_IPV4_OFFSET..DEST_IN_IPV4_OFFSET + IPV4_SIZE],

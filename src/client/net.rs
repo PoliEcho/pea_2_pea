@@ -8,6 +8,7 @@ use super::types;
 use colored::Colorize;
 use pea_2_pea::{shared::net::send_and_recv_with_retry, *};
 use rand::{RngCore, rng};
+use sha2::Digest;
 
 pub fn query_request(
     buf: &mut [u8; UDP_BUFFER_SIZE],
@@ -434,14 +435,28 @@ pub async fn handle_incoming_connection(
                         ..P2PStandardDataPositions::IV as usize + BLOCK_SIZE],
                     &buf[P2PStandardDataPositions::DATA as usize..data_lenght as usize],
                 ) {
-                    Ok(data) => match tun_iface.send(&data) {
-                        Ok(_) => {}
-                        Err(e) => eprintln!(
-                            "{} failed to write packet to tun interface, Error: {}",
-                            "[WARNING]".yellow(),
-                            e
-                        ),
-                    },
+                    Ok(data) => {
+                        #[cfg(debug_assertions)]
+                        eprintln!(
+                            "packet contets: {}\nhash: {:x}",
+                            data.iter()
+                                .map(|x| format!("{:02X} ", x))
+                                .collect::<String>(),
+                            {
+                                let mut hasher = sha2::Sha256::new();
+                                hasher.update(&data);
+                                hasher.finalize()
+                            }
+                        );
+                        match tun_iface.send(&data) {
+                            Ok(_) => {}
+                            Err(e) => eprintln!(
+                                "{} failed to write packet to tun interface, Error: {}",
+                                "[WARNING]".yellow(),
+                                e
+                            ),
+                        }
+                    }
                     Err(e) => eprintln!(
                         "{} failed to decrypt packet, Error: {}",
                         "[WARNING]".yellow(),
@@ -449,9 +464,15 @@ pub async fn handle_incoming_connection(
                     ),
                 }
             } else {
-                match tun_iface.send(&buf[P2PStandardDataPositions::DATA as usize..data_lenght as usize]) {
-                    Ok(_) => {},
-                    Err(e) => eprintln!("{} failed to write packet to tun interface, Error: {}", "[WARNING]".yellow(), e),
+                match tun_iface
+                    .send(&buf[P2PStandardDataPositions::DATA as usize..data_lenght as usize])
+                {
+                    Ok(_) => {}
+                    Err(e) => eprintln!(
+                        "{} failed to write packet to tun interface, Error: {}",
+                        "[WARNING]".yellow(),
+                        e
+                    ),
                 };
             }
         }
