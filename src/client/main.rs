@@ -200,26 +200,38 @@ fn main() -> std::io::Result<()> {
         let encrypted = network_write_lock.encrypted;
         let key = network_write_lock.key;
         network_write_lock.peers.iter_mut().for_each(|peer| {
-            let mut retry_count: usize = 0;
-            loop {
-                match net::P2P_query(&mut buf, &peer.sock_addr, &socket, encrypted, key) {
-                    Ok(ip) => {
-                        ips_used[ip.octets()[3] as usize] = true;
-                        peer.private_ip = ip;
-                        break;
+            println!(
+                "{} firing salvo of PUNCHING packets to {}",
+                "[LOG]".blue(),
+                peer.sock_addr
+            );
+            for _ in 0..MAPPING_SHOT_COUNT {
+                match socket.send_to(&[P2PMethods::DO_NOTHING as u8], peer.sock_addr) {
+                    Ok(s) => {
+                        #[cfg(debug_assertions)]
+                        eprintln!("send {} bytes", s);
                     }
-                    Err(e) => {
-                        eprintln!(
-                            "{} while getting ip from peer: {}, Error: {}, Retrying!",
-                            "[ERROR]".red(),
-                            peer.sock_addr,
-                            e
-                        );
-                        retry_count += 1
-                    }
+                    Err(e) => eprintln!("{} failed to send puching packet: {}", "[ERROR]".red(), e),
                 }
-                if retry_count >= STANDARD_RETRY_MAX {
-                    break;
+            }
+            println!(
+                "{} packets away!, awiting a bit for NAT mappings to estabilish",
+                "[LOG]".blue()
+            );
+            std::thread::sleep(Duration::from_millis(200));
+
+            match net::P2P_query(&mut buf, &peer.sock_addr, &socket, encrypted, key) {
+                Ok(ip) => {
+                    ips_used[ip.octets()[3] as usize] = true;
+                    peer.private_ip = ip;
+                }
+                Err(e) => {
+                    eprintln!(
+                        "{} while getting ip from peer: {}, Error: {}",
+                        "[ERROR]".red(),
+                        peer.sock_addr,
+                        e
+                    );
                 }
             }
         });
