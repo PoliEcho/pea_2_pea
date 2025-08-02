@@ -304,6 +304,7 @@ fn main() -> std::io::Result<()> {
     } // just let me have my thread
 
     smol::block_on(async {
+        println!("{} listener started!", "[LOG]".blue());
         loop {
             buf.fill(0);
             match socket.recv_from(&mut buf) {
