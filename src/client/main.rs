@@ -222,20 +222,23 @@ fn main() -> std::io::Result<()> {
                 "{} packets away!, awiting a bit for NAT mappings to estabilish",
                 "[LOG]".blue()
             );
-            std::thread::sleep(Duration::from_millis(200));
-
-            match net::P2P_query(&mut buf, &peer.sock_addr, &socket, encrypted, key) {
-                Ok(ip) => {
-                    ips_used[ip.octets()[3] as usize] = true;
-                    peer.private_ip = ip;
-                }
-                Err(e) => {
-                    eprintln!(
-                        "{} while getting ip from peer: {}, Error: {}",
-                        "[ERROR]".red(),
-                        peer.sock_addr,
-                        e
-                    );
+            std::thread::sleep(Duration::from_millis(2000));
+            for _ in 0..STANDARD_RETRY_MAX {
+                match net::P2P_query(&mut buf, &peer.sock_addr, &socket, encrypted, key) {
+                    Ok(ip) => {
+                        ips_used[ip.octets()[3] as usize] = true;
+                        peer.private_ip = ip;
+                        break;
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "{} while getting ip from peer: {}, Error: {}",
+                            "[ERROR]".red(),
+                            peer.sock_addr,
+                            e
+                        );
+                        std::thread::sleep(Duration::from_millis(2000));
+                    }
                 }
             }
         });
