@@ -4,7 +4,7 @@ pub const SERVER_PORT: u16 = 3543;
 pub const UDP_BUFFER_SIZE: usize = 65527;
 pub const IP_BUFFER_SIZE: usize = 65535;
 pub const DEFAULT_TIMEOUT: u64 = 30;
-pub const VERSION: &str = "v1.0";
+pub const VERSION: &str = "v1.1";
 pub const BLOCK_SIZE: usize = 16;
 pub const STANDARD_RETRY_MAX: usize = 10;
 

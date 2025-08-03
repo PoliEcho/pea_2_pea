@@ -21,7 +21,8 @@ use crate::types::Network;
 struct Cli {
     #[arg(short = 'r', long = "registrar")]
     #[arg(help = "registrar ip address or hostname")]
-    registrar: String,
+    #[arg(required_unless_present = "version")]
+    registrar: Option<String>,
 
     #[arg(short = 'p', long = "registrar-port")]
     #[arg(help = format!("optional Port number for the registrar service (1-65535) Default: {}", SERVER_PORT))]
@@ -29,7 +30,8 @@ struct Cli {
 
     #[arg(short = 'n', long = "network-id")]
     #[arg(help = "your virtual network id that allows other people to connect to you")]
-    network_id: String,
+    #[arg(required_unless_present = "version")]
+    network_id: Option<String>,
 
     #[arg(short = 'P', long = "password")]
     #[arg(
@@ -52,9 +54,19 @@ struct Cli {
     symmetric_nat_bypass_mode: bool,
 }
 
+fn print_version() {
+    println!("Pea 2 Pea {}", VERSION);
+}
+
 fn main() -> std::io::Result<()> {
     let cli = <Cli as clap::Parser>::parse();
-    if cli.network_id.len() > 0xff {
+    if cli.version {
+        print_version();
+        exit(0);
+    }
+    let network_id = cli.network_id.unwrap();
+    let registrar = cli.registrar.unwrap();
+    if network_id.len() > 0xff {
         eprintln!("network id cannot have more then 255 charactes");
         exit(7); // posix for E2BIG
     }
@@ -81,11 +93,11 @@ fn main() -> std::io::Result<()> {
         })();
 
         #[allow(non_snake_case)] // i think this is valid snake case but rustc doesnt think so
-        let server_SocketAddr: core::net::SocketAddr = format!("{}:{}", cli.registrar, server_port)
+        let server_SocketAddr: core::net::SocketAddr = format!("{}:{}", registrar, server_port)
             .parse()
             .expect(&format!(
                 "{}:{} is invalid sock addr",
-                cli.registrar, server_port
+                registrar, server_port
             ));
 
         // query here
@@ -134,7 +146,7 @@ fn main() -> std::io::Result<()> {
                 &mut buf,
                 &server_SocketAddr,
                 &socket,
-                &cli.network_id,
+                &network_id,
                 &cli.password,
             ) {
                 Ok(n) => {
@@ -161,7 +173,7 @@ fn main() -> std::io::Result<()> {
                             None => false,
                         },
                         encryption_key,
-                        cli.network_id,
+                        network_id,
                         salt,
                         Vec::with_capacity(1),
                     );
