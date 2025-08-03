@@ -59,7 +59,7 @@ fn main() -> std::io::Result<()> {
         exit(7); // posix for E2BIG
     }
     let mut buf: [u8; UDP_BUFFER_SIZE] = [0; UDP_BUFFER_SIZE];
-    let (socket, virtual_network, my_public_sock_addr) = {
+    let (socket, virtual_network, _my_public_sock_addr) = {
         let socket: Arc<UdpSocket> = Arc::new(|| -> std::io::Result<UdpSocket> {
             match UdpSocket::bind("0.0.0.0:0") {
                 // bind to OS assigned random port
@@ -146,7 +146,7 @@ fn main() -> std::io::Result<()> {
                     let _ = net::send_heartbeat(
                         &mut buf,
                         &server_SocketAddr,
-                        &socket,
+                        socket.clone(),
                         &n,
                         &public_sock_addr,
                         &iv,

@@ -7,7 +7,7 @@ use std::{
 use super::types;
 use colored::Colorize;
 use pea_2_pea::{shared::net::send_and_recv_with_retry, *};
-use rand::{RngCore, rng};
+use rand::{Rng, RngCore, rng};
 use sha2::Digest;
 
 pub fn query_request(
@@ -255,7 +255,7 @@ pub fn get_request(
 pub fn send_heartbeat(
     buf: &mut [u8; UDP_BUFFER_SIZE],
     dst: &SocketAddr,
-    socket: &UdpSocket,
+    socket: Arc<std::net::UdpSocket>,
     network: &types::Network,
     my_public_sock_addr: &Box<[u8]>,
     iv: &[u8; BLOCK_SIZE as usize],
@@ -300,7 +300,16 @@ pub fn send_heartbeat(
             .collect::<String>(),
     );
 
-    match send_and_recv_with_retry(buf, &send_buf, dst, socket, STANDARD_RETRY_MAX) {
+    {
+        let sock_clone = socket.clone();
+        let send_buf_clone: Box<[u8]> = send_buf.clone();
+        let dst_clone: SocketAddr = dst.clone();
+        std::thread::spawn(move || {
+            periodic_heart_beat(sock_clone, send_buf_clone, dst_clone);
+        });
+    }
+
+    match send_and_recv_with_retry(buf, &send_buf, dst, &socket, STANDARD_RETRY_MAX) {
         Ok((data_lenght, _)) => return Ok(data_lenght),
         Err(e) => return Err(e),
     }
@@ -724,6 +733,27 @@ pub async fn handle_incoming_connection(
                 "[WARNING]".bright_yellow(),
                 buf[0]
             )
+        }
+    }
+}
+
+pub fn periodic_heart_beat(socket: Arc<UdpSocket>, send_buf: Box<[u8]>, dst: SocketAddr) {
+    loop {
+        std::thread::sleep(std::time::Duration::from_secs(30));
+        println!("{} sending heartbeat to server", "[LOG]".blue());
+
+        match socket.send_to(&send_buf, dst) {
+            Ok(size) => {
+                #[cfg(debug_assertions)]
+                println!("send {} bytes", size);
+            }
+            Err(e) => {
+                eprintln!(
+                    "{} failed to send heartbeat to server Error: {}",
+                    "[ERROR]".red(),
+                    e
+                );
+            }
         }
     }
 }

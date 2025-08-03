@@ -2,10 +2,7 @@ mod net;
 mod types;
 mod utils;
 use smol::net::UdpSocket;
-use std::{
-    process::exit,
-    sync::{Arc, RwLock},
-};
+use std::{process::exit, sync::Arc};
 
 use orx_concurrent_vec::ConcurrentVec;
 fn main() -> std::io::Result<()> {
@@ -20,6 +17,13 @@ fn main() -> std::io::Result<()> {
 
         let registration_vector: Arc<ConcurrentVec<types::Registration>> =
             Arc::new(orx_concurrent_vec::ConcurrentVec::new());
+
+        {
+            let reg_clone = registration_vector.clone();
+            std::thread::spawn(move || {
+                utils::disconnected_cleaner(reg_clone);
+            });
+        }
 
         let mut buf: [u8; pea_2_pea::UDP_BUFFER_SIZE] = [0u8; pea_2_pea::UDP_BUFFER_SIZE];
         smol::block_on(async {

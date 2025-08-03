@@ -41,6 +41,7 @@ pub struct Registration {
     pub encrypted: bool,
     #[readonly]
     pub salt: [u8; BLOCK_SIZE as usize],
+    pub invalid: bool,
 }
 
 impl Registration {
@@ -64,64 +65,7 @@ impl Registration {
             encrypted,
             last_heart_beat: heart_beat,
             salt: salt.unwrap_or([0; BLOCK_SIZE as usize]),
+            invalid: false,
         }
-    }
-}
-
-pub struct BatchLock {
-    inner: std::sync::Mutex<bool>, // true = blocking new locks
-    condvar: std::sync::Condvar,
-    active_count: std::sync::atomic::AtomicUsize,
-}
-
-pub struct LockGuard {
-    lock: Arc<BatchLock>,
-}
-
-impl BatchLock {
-    pub fn new() -> Arc<Self> {
-        Arc::new(BatchLock {
-            inner: std::sync::Mutex::new(false),
-            condvar: std::sync::Condvar::new(),
-            active_count: std::sync::atomic::AtomicUsize::new(0),
-        })
-    }
-
-    // Acquire a lock (blocks if waiting for all to unlock)
-    pub fn lock(self: &Arc<Self>) -> LockGuard {
-        let mut blocking = self.inner.lock().unwrap();
-
-        // Wait while new locks are blocked
-        while *blocking {
-            blocking = self.condvar.wait(blocking).unwrap();
-        }
-
-        self.active_count.fetch_add(1, Ordering::SeqCst);
-
-        LockGuard {
-            lock: Arc::clone(self),
-        }
-    }
-
-    // Block new locks and wait for all current locks to finish
-    pub fn wait_all_unlock(self: &Arc<Self>) {
-        // Block new locks
-        *self.inner.lock().unwrap() = true;
-
-        // Wait for all active locks to finish
-        while self.active_count.load(Ordering::SeqCst) > 0 {
-            std::thread::sleep(std::time::Duration::from_millis(1));
-        }
-
-        // Allow new locks again
-        *self.inner.lock().unwrap() = false;
-        self.condvar.notify_all();
-    }
-}
-
-impl Drop for LockGuard {
-    fn drop(&mut self) {
-        // Automatically release lock when guard is dropped
-        self.lock.active_count.fetch_sub(1, Ordering::SeqCst);
     }
 }
