@@ -7,7 +7,7 @@ use std::{
 use super::types;
 use colored::Colorize;
 use pea_2_pea::{shared::net::send_and_recv_with_retry, *};
-use rand::{Rng, RngCore, rng};
+use rand::{RngCore, rng};
 use sha2::Digest;
 
 pub fn query_request(

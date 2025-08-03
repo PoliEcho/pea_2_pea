@@ -1,5 +1,4 @@
 use pea_2_pea::*;
-use std::sync::{Arc, atomic::Ordering};
 
 #[derive(Clone)]
 #[readonly::make]
