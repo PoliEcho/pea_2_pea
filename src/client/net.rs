@@ -727,6 +727,9 @@ pub async fn handle_incoming_connection(
                 "[SUCCESS]".green()
             );
         }
+        x if x == ServerMethods::HEARTBEAT as u8 => {
+            println!("{} heart beat recive confirmed", "[OK]".green());
+        }
         _ => {
             eprintln!(
                 "{} unknown method ID: 0x{:02x}, Droping!",
@@ -738,6 +741,7 @@ pub async fn handle_incoming_connection(
 }
 
 pub fn periodic_heart_beat(socket: Arc<UdpSocket>, send_buf: Box<[u8]>, dst: SocketAddr) {
+    println!("{} periodic heartbeat started", "[LOG]".blue());
     loop {
         std::thread::sleep(std::time::Duration::from_secs(30));
         println!("{} sending heartbeat to server", "[LOG]".blue());

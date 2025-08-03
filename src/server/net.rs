@@ -64,7 +64,7 @@ pub async fn handle_request(
 
             let registration = match registration_vector
                 .iter()
-                .find(|elem| elem.map(|s| &s.net_id == &net_id)) // find if id exists
+                .find(|elem| elem.map(|s| &s.net_id == &net_id && !s.invalid)) // find if id exists
             {
                 Some(registration) => registration,
                 None => {futures::executor::block_on(send_with_count(socket, &src ,&[ServerResponse::ID_DOESNT_EXIST as u8]));
@@ -163,7 +163,7 @@ pub async fn handle_request(
 
             match registration_vector
                 .iter()
-                .find(|elem| elem.map(|s| &s.net_id == &net_id)) // find if id exists
+                .find(|elem| elem.map(|s| &s.net_id == &net_id && !s.invalid)) // find if id exists
             {
                 Some(_) => {
                         futures::executor::block_on(send_with_count(socket, &src, &[ServerResponse::ID_EXISTS as u8]));
@@ -216,7 +216,25 @@ pub async fn handle_request(
                     .collect::<String>(),
             );
 
-            registration_vector.push(types::Registration::new(
+            let mut first_invalid_registration: Option<usize> = None;
+
+            for (i, reg) in registration_vector.iter().enumerate() {
+                if reg.map(|r| r.invalid) {
+                    first_invalid_registration = Some(i);
+                    break;
+                }
+            }
+            match first_invalid_registration {
+                Some(i) => registration_vector[i].update(|r|{*r = types::Registration::new(
+                net_id.clone(),
+                client_sock_addr.clone(),
+                encrypted,
+                chrono::Utc::now().timestamp(),
+                salt,
+                iv,
+                src
+            );}),
+                None => {registration_vector.push(types::Registration::new(
                 net_id,
                 client_sock_addr,
                 encrypted,
@@ -224,7 +242,9 @@ pub async fn handle_request(
                 salt,
                 iv,
                 src
-            ));
+            ));},
+            };
+
             send_with_count(socket, &src, &[ServerMethods::REGISTER as u8]).await;
             #[cfg(debug_assertions)]
             println!("network registered");

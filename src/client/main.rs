@@ -186,6 +186,17 @@ fn main() -> std::io::Result<()> {
                         &iv,
                     )
                     .unwrap();
+
+                    let _ = net::send_heartbeat(
+                        // send heart beat to start periodic heart beat
+                        &mut buf,
+                        &server_SocketAddr,
+                        socket.clone(),
+                        &tmp_v_net,
+                        &public_sock_addr,
+                        &iv,
+                    );
+
                     tmp_v_net
                 }
                 Err(e) => {
