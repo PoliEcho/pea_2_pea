@@ -14,7 +14,7 @@ at least for now
 
 ## how to run  
 > install rustc and cargo or rustup, you will need 2024 edition  
-> <span style='color: red;'>if using windows you need to get</span> [wintun](https://www.wintun.net/)  <span style='color: red;'>driver</span>  
+> <b><span style='color: red;'>if using windows you need to get</span></b> [wintun](https://www.wintun.net/)  <b><span style='color: red;'>driver</span></b>  
 > build using  
 > ```bash
 > # to build
