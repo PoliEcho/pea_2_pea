@@ -7,7 +7,10 @@ at least for now
 
 
 > [!WARNING]  
-> Piercing NAT may fail based on network configuration
+> Piercing NAT may fail based on network configuration minor bug fixes  
+
+> [!WARNING]    
+>  windows client does not work thanks to some tappers library issues
 
 ## how to run  
 > install rustc and cargo or rustup, you will need 2024 edition  
